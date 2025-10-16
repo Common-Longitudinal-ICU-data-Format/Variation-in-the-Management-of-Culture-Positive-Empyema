@@ -1,0 +1,15 @@
+[project]
+name = "variation-in-the-management-of-culture-positive-empyema"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "clifpy>=0.1.0",
+    "marimo>=0.16.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "pyarrow>=10.0.0",
+    "watchdog>=6.0.0",
+    "scipy>=1.16.2",
+]
