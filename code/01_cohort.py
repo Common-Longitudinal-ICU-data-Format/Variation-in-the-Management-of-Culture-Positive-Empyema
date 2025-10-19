@@ -18,23 +18,34 @@ def _(mo):
 
     This notebook identifies hospitalizations with culture-positive empyema meeting inclusion criteria.
 
-    ## Objective
-    Generate a cohort of adult patients with:
-    - Positive pleural fluid culture (organism_category != 'no growth')
-    - Age ≥18 years
-    - Hospitalization between 2018-2024
-    - Received ≥5 days of IV antibiotics after culture order
-
     ## Inclusion Criteria
-    - Adult patients aged ≥18 years
-    - Positive organism_category in fluid_category == 'pleural' (not "no growth")
-    - Received at least 5 days of IV antibiotics after order_dttm of positive culture
-    - Admission date between 2018-2024
-    - Discharge date <= 2024
+
+    All of the following criteria must be met:
+
+    1. **Adult patients aged ≥18 years**
+    2. **Positive organism_category in fluid_category == 'pleural'** (not "no growth")
+    3. **Received at least 5 days of IV antibiotics** after order_dttm of positive pleural culture
+       - Antibiotics: CMS_sepsis_qualifying_antibiotics from medication_admin_intermittent
+       - Window: 5 consecutive days from culture order_dttm
+    4. **Admission date between January 1, 2018 and December 31, 2024**
+    5. **Discharge date <= December 31, 2024**
 
     ## Exclusion Criteria (to be implemented in next notebook)
-    - Hospitalization in prior 6 weeks with positive pleural culture
-    - Fewer than 5 days of IV antibiotics after order_dttm
+
+    The following criteria will be applied in subsequent analysis:
+
+    1. **Hospitalization in prior 6 weeks with positive pleural culture**
+    2. **Fewer than 5 days of IV antibiotics** after order_dttm
+
+    ## Additional Flags Tracked (not exclusion criteria)
+
+    The following interventions are tracked but not used as exclusion criteria:
+
+    1. **Intrapleural lytic therapy** (alteplase or dornase_alfa via intrapleural route)
+       - Tracked from 1st culture order_dttm to discharge_dttm (entire stay)
+       - Includes dose counts and median doses for alteplase and dornase_alfa
+    2. **VATS/Decortication procedures** (hospitalization-level, any time during stay)
+       - CPT codes: 32651, 32652, 32225, 32220, 32320
     """
     )
     return
@@ -97,9 +108,7 @@ def _(Hospitalization, pd):
         (hosp_df['discharge_dttm'].dt.year <= 2024)
     ].copy()
 
-    print(f"  After age filter (≥18): {len(hosp_filtered):,}")
-    print(f"  After date filters (2018-2024 admission, ≤2024 discharge): {len(hosp_filtered):,}")
-    print(f"✓ Filtered hospitalizations: {len(hosp_filtered):,}")
+    print(f"  After age filter (≥18) & date filters(2018-2024 admission, ≤2024 discharge): {len(hosp_filtered):,}")
     return hosp_df, hosp_filtered
 
 
@@ -272,9 +281,6 @@ def _(cohort_with_cultures, meds_df, pd):
     # Filter antibiotics to those given AFTER pleural culture order_dttm
     print("\nFiltering antibiotics to post-culture administration...")
 
-    # Convert datetime
-    meds_df['admin_dttm'] = pd.to_datetime(meds_df['admin_dttm'])
-
     # For each hospitalization+order_dttm, get antibiotics administered after order
     # Merge to get order_dttm for each hospitalization
     abx_with_order = pd.merge(
@@ -290,7 +296,7 @@ def _(cohort_with_cultures, meds_df, pd):
     ].copy()
 
     print(f"✓ Antibiotic administrations after culture order: {len(abx_post_culture):,}")
-    print(f"  Unique hospitalizations: {abx_post_culture['hospitalization_id'].nunique():,}")
+    print(f"  Unique culture orders: {abx_post_culture.groupby(['hospitalization_id', 'order_dttm']).ngroups:,}")
     return (abx_post_culture,)
 
 
@@ -372,7 +378,7 @@ def _(MedicationAdminIntermittent, cohort_hosp_ids):
         filters={
             'hospitalization_id': cohort_hosp_ids
         },
-        columns=['hospitalization_id', 'admin_dttm', 'med_category', 'med_route_category']
+        columns=['hospitalization_id', 'admin_dttm', 'med_category', 'med_route_category', 'med_dose']
     )
 
     # Filter to intrapleural lytics (alteplase or dornase alfa)
@@ -384,51 +390,67 @@ def _(MedicationAdminIntermittent, cohort_hosp_ids):
     print(f"✓ Intrapleural lytics loaded: {len(intrapleural_df):,} records")
     print(f"  Alteplase: {(intrapleural_df['med_category'] == 'alteplase').sum():,}")
     print(f"  Dornase alfa: {(intrapleural_df['med_category'] == 'dornase_alfa').sum():,}")
-    return intrapleural_df, intrapleural_table
-
-
-@app.cell
-def _(intrapleural_table):
-    intrapleural_table.df.med_category.unique()
-    return
+    return (intrapleural_df,)
 
 
 @app.cell
 def _(cohort_with_cultures, intrapleural_df, pd):
-    # Merge with cohort to get order_dttm for each hospitalization
-    print("\nFiltering intrapleural lytics to 5-day window from culture order...")
+    # Merge with cohort to get first order_dttm and discharge_dttm per hospitalization
+    print("\nPreparing hospitalization-level dates for lytics tracking...")
 
-    intrapleural_with_order = pd.merge(
+    # Get first order_dttm per hospitalization from cohort
+    hosp_dates = cohort_with_cultures.groupby('hospitalization_id', as_index=False).agg({
+        'order_dttm': 'min',  # First culture order
+        'discharge_dttm': 'first'
+    })
+
+    intrapleural_with_dates = pd.merge(
         intrapleural_df,
-        cohort_with_cultures[['hospitalization_id', 'order_dttm']],
+        hosp_dates,
         on='hospitalization_id',
         how='inner'
     )
 
-    # Convert datetime
-    intrapleural_with_order['admin_dttm'] = pd.to_datetime(intrapleural_with_order['admin_dttm'])
-
-    # Filter to 5-day window from order_dttm
-    intrapleural_5day = intrapleural_with_order[
-        (intrapleural_with_order['admin_dttm'] >= intrapleural_with_order['order_dttm']) &
-        ((intrapleural_with_order['admin_dttm'] - intrapleural_with_order['order_dttm']).dt.total_seconds() <= (5 * 24 * 3600))
+    # Filter to entire stay window: from first order_dttm to discharge_dttm
+    print("\nFiltering intrapleural lytics to entire stay window (1st order → discharge)...")
+    intrapleural_stay = intrapleural_with_dates[
+        (intrapleural_with_dates['admin_dttm'] >= intrapleural_with_dates['order_dttm']) &
+        (intrapleural_with_dates['admin_dttm'] <= intrapleural_with_dates['discharge_dttm'])
     ].copy()
 
-    print(f"✓ Intrapleural lytics in 5-day window: {len(intrapleural_5day):,}")
-    print(f"  Unique culture orders with lytics: {intrapleural_5day.groupby(['hospitalization_id', 'order_dttm']).ngroups:,}")
-    return (intrapleural_5day,)
+    print(f"✓ Intrapleural lytics in entire stay window: {len(intrapleural_stay):,}")
+    print(f"  Unique hospitalizations with lytics: {intrapleural_stay['hospitalization_id'].nunique():,}")
+    print(f"  Alteplase: {(intrapleural_stay['med_category'] == 'alteplase').sum():,}")
+    print(f"  Dornase alfa: {(intrapleural_stay['med_category'] == 'dornase_alfa').sum():,}")
+    return (intrapleural_stay,)
 
 
 @app.cell
-def _(intrapleural_5day):
-    # Create binary indicator: did they receive ANY intrapleural lytic in 5-day window?
-    print("\nCreating intrapleural lytic indicator...")
+def _(intrapleural_stay, pd):
+    # Calculate hospitalization-level lytics statistics with dose counts and medians
+    print("\nCalculating hospitalization-level lytic statistics...")
 
-    lytics_received = intrapleural_5day.groupby(['hospitalization_id', 'order_dttm']).size().reset_index()
-    lytics_received.columns = ['hospitalization_id', 'order_dttm', 'lytic_admin_count']
-    lytics_received['received_intrapleural_lytic'] = 1
+    def calc_lytic_stats(group):
+        """Calculate dose counts and medians for alteplase and dornase_alfa."""
+        alteplase_doses = group[group['med_category'] == 'alteplase']['med_dose']
+        dornase_doses = group[group['med_category'] == 'dornase_alfa']['med_dose']
 
-    print(f"✓ Culture orders with intrapleural lytics: {len(lytics_received):,}")
+        return {
+            'received_intrapleural_lytic': 1,
+            'n_doses_alteplase': len(alteplase_doses),
+            'n_doses_dornase_alfa': len(dornase_doses),
+            'median_dose_alteplase': float(alteplase_doses.median()) if len(alteplase_doses) > 0 else 0.0,
+            'median_dose_dornase_alfa': float(dornase_doses.median()) if len(dornase_doses) > 0 else 0.0
+        }
+
+    lytics_received = intrapleural_stay.groupby('hospitalization_id').apply(
+        lambda g: pd.Series(calc_lytic_stats(g))
+    ).reset_index()
+
+    print(f"✓ Hospitalizations with intrapleural lytics: {len(lytics_received):,}")
+    print(f"  With alteplase: {(lytics_received['n_doses_alteplase'] > 0).sum():,}")
+    print(f"  With dornase alfa: {(lytics_received['n_doses_dornase_alfa'] > 0).sum():,}")
+    print(f"  With both: {((lytics_received['n_doses_alteplase'] > 0) & (lytics_received['n_doses_dornase_alfa'] > 0)).sum():,}")
     return (lytics_received,)
 
 
@@ -506,11 +528,11 @@ def _(
         how='left'
     )
 
-    # Then merge intrapleural lytic indicator
+    # Then merge intrapleural lytic statistics (hospitalization-level)
     cohort_with_abx = pd.merge(
         cohort_with_abx,
-        lytics_received[['hospitalization_id', 'order_dttm', 'received_intrapleural_lytic']],
-        on=['hospitalization_id', 'order_dttm'],
+        lytics_received[['hospitalization_id', 'received_intrapleural_lytic', 'n_doses_alteplase', 'n_doses_dornase_alfa', 'median_dose_alteplase', 'median_dose_dornase_alfa']],
+        on='hospitalization_id',
         how='left'
     )
 
@@ -527,8 +549,13 @@ def _(
     cohort_with_abx[abx_cols] = cohort_with_abx[abx_cols].fillna(0).astype(int)
     cohort_with_abx['abx_free_days'] = cohort_with_abx['abx_free_days'].fillna(5).astype(int)
 
-    # Fill NaN (no lytics) with 0
-    cohort_with_abx['received_intrapleural_lytic'] = cohort_with_abx['received_intrapleural_lytic'].fillna(0).astype(int)
+    # Fill NaN (no lytics) with 0 for all lytic columns
+    lytic_cols = ['received_intrapleural_lytic', 'n_doses_alteplase', 'n_doses_dornase_alfa']
+    cohort_with_abx[lytic_cols] = cohort_with_abx[lytic_cols].fillna(0).astype(int)
+
+    # Fill NaN (no lytics) with 0.0 for median dose columns
+    median_dose_cols = ['median_dose_alteplase', 'median_dose_dornase_alfa']
+    cohort_with_abx[median_dose_cols] = cohort_with_abx[median_dose_cols].fillna(0.0)
 
     # Fill NaN (no procedures) with 0
     cohort_with_abx['received_vats_decortication'] = cohort_with_abx['received_vats_decortication'].fillna(0).astype(int)
@@ -555,228 +582,250 @@ def _(
 
 @app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""## Cohort Summary""")
+    mo.md(r"""## Collapse to First Culture Order per Hospitalization""")
     return
 
 
 @app.cell
 def _(cohort_final):
-    # Display cohort summary
-    print("\n=== Empyema Cohort Summary ===")
-    print(f"Total records: {len(cohort_final):,}")
-    print(f"Unique hospitalizations: {cohort_final['hospitalization_id'].nunique():,}")
-    print(f"Unique patients: {cohort_final['patient_id'].nunique():,}")
+    # Group by hospitalization, keep first order_dttm, aggregate organisms
+    print("\n=== Collapsing to First Culture Order per Hospitalization ===")
+    print(f"Before collapse: {len(cohort_final):,} rows (culture orders)")
+    print(f"  Unique hospitalizations: {cohort_final['hospitalization_id'].nunique():,}")
 
-    print(f"\n=== Age Distribution ===")
-    print(f"Mean age: {cohort_final['age_at_admission'].mean():.1f} years")
-    print(f"Median age: {cohort_final['age_at_admission'].median():.1f} years")
-    print(f"Min age: {cohort_final['age_at_admission'].min():.0f} years")
-    print(f"Max age: {cohort_final['age_at_admission'].max():.0f} years")
+    # Sort by hospitalization_id and order_dttm to ensure first order is selected
+    cohort_sorted = cohort_final.sort_values(['hospitalization_id', 'order_dttm']).copy()
 
-    print(f"\n=== Date Range ===")
-    print(f"First admission: {cohort_final['admission_dttm'].min()}")
-    print(f"Last admission: {cohort_final['admission_dttm'].max()}")
+    # Aggregate organisms: collect all unique organisms across all culture orders per hospitalization
+    cohort_first_order = cohort_sorted.groupby('hospitalization_id', as_index=False).agg({
+        'patient_id': 'first',
+        'age_at_admission': 'first',
+        'admission_dttm': 'first',
+        'discharge_dttm': 'first',
+        'discharge_category': 'first',
+        'order_dttm': 'first',  # Keep earliest order_dttm
+        'fluid_category': 'first',
+        'organism_category': lambda x: '; '.join(sorted('; '.join(x).split('; '))),  # Merge all organisms (keep duplicates)
+        # Antibiotic pattern columns (keep first, should be same if all 5 days covered)
+        'day_1_abx': 'first',
+        'day_2_abx': 'first',
+        'day_3_abx': 'first',
+        'day_4_abx': 'first',
+        'day_5_abx': 'first',
+        'all_5_days_abx': 'first',
+        'abx_free_days': 'first',
+        # Intervention flags (hospitalization-level, use max for binary 0/1 flags)
+        'received_intrapleural_lytic': 'max',
+        'n_doses_alteplase': 'first',
+        'n_doses_dornase_alfa': 'first',
+        'median_dose_alteplase': 'first',
+        'median_dose_dornase_alfa': 'first',
+        'received_vats_decortication': 'max'
+    })
 
-    print(f"\n=== Year Distribution ===")
-    _year_dist = cohort_final['admission_dttm'].dt.year.value_counts().sort_index()
-    for _year, _count in _year_dist.items():
-        print(f"  {_year}: {_count:,} hospitalizations")
+    # Recalculate organism_count from the merged organism_category string
+    cohort_first_order['organism_count'] = cohort_first_order['organism_category'].str.count(';') + 1
 
-    print(f"\n=== 5-Day Antibiotic Pattern ===")
-    print(f"All 5 days covered: {(cohort_final['all_5_days_abx'] == 1).sum():,} (100%)")
-    print(f"\nDaily antibiotic coverage:")
-    for _day in range(1, 6):
-        _covered = (cohort_final[f'day_{_day}_abx'] == 1).sum()
-        _pct = _covered / len(cohort_final) * 100
-        print(f"  Day {_day}: {_covered:,} ({_pct:.1f}%)")
+    print(f"\nAfter collapse: {len(cohort_first_order):,} rows (one per hospitalization)")
+    print(f"  Unique hospitalizations: {cohort_first_order['hospitalization_id'].nunique():,}")
+    print(f"  Unique patients: {cohort_first_order['patient_id'].nunique():,}")
 
-    print(f"\n=== Intrapleural Lytic Therapy ===")
-    _lytic_count = (cohort_final['received_intrapleural_lytic'] == 1).sum()
-    _no_lytic_count = (cohort_final['received_intrapleural_lytic'] == 0).sum()
-    print(f"Received lytics: {_lytic_count:,} ({_lytic_count/len(cohort_final)*100:.1f}%)")
-    print(f"No lytics: {_no_lytic_count:,} ({_no_lytic_count/len(cohort_final)*100:.1f}%)")
+    # Show examples of organism aggregation
+    multi_orders = cohort_final.groupby('hospitalization_id').size()
+    multi_orders = multi_orders[multi_orders > 1]
+    return (cohort_first_order,)
 
-    print(f"\n=== VATS/Decortication Procedures ===")
-    _procedure_count = (cohort_final['received_vats_decortication'] == 1).sum()
-    _no_procedure_count = (cohort_final['received_vats_decortication'] == 0).sum()
-    print(f"Received VATS/decortication: {_procedure_count:,} ({_procedure_count/len(cohort_final)*100:.1f}%)")
-    print(f"No VATS/decortication: {_no_procedure_count:,} ({_no_procedure_count/len(cohort_final)*100:.1f}%)")
 
-    print(f"\n=== Treatment Modalities ===")
-    _only_abx = ((cohort_final['received_intrapleural_lytic'] == 0) & (cohort_final['received_vats_decortication'] == 0)).sum()
-    _abx_lytics = ((cohort_final['received_intrapleural_lytic'] == 1) & (cohort_final['received_vats_decortication'] == 0)).sum()
-    _abx_surgery = ((cohort_final['received_intrapleural_lytic'] == 0) & (cohort_final['received_vats_decortication'] == 1)).sum()
-    _abx_lytics_surgery = ((cohort_final['received_intrapleural_lytic'] == 1) & (cohort_final['received_vats_decortication'] == 1)).sum()
-    print(f"Antibiotics only: {_only_abx:,} ({_only_abx/len(cohort_final)*100:.1f}%)")
-    print(f"Antibiotics + Lytics: {_abx_lytics:,} ({_abx_lytics/len(cohort_final)*100:.1f}%)")
-    print(f"Antibiotics + Surgery: {_abx_surgery:,} ({_abx_surgery/len(cohort_final)*100:.1f}%)")
-    print(f"Antibiotics + Lytics + Surgery: {_abx_lytics_surgery:,} ({_abx_lytics_surgery/len(cohort_final)*100:.1f}%)")
-
-    print(f"\n=== Top 10 Organisms ===")
-    _org_counts = cohort_final['organism_category'].value_counts()
-    for _i, (_org, _count) in enumerate(_org_counts.head(10).items(), 1):
-        _pct = _count / len(cohort_final) * 100
-        print(f"  {_i}. {_org}: {_count:,} ({_pct:.1f}%)")
+@app.cell(hide_code=True)
+def _(mo):
+    mo.md(r"""## Cohort Summary""")
     return
 
 
 @app.cell
+def _(cohort_first_order):
+    # Display cohort summary
+    print("\n=== Empyema Cohort Summary ===")
+    print(f"Total records: {len(cohort_first_order):,}")
+    print(f"Unique hospitalizations: {cohort_first_order['hospitalization_id'].nunique():,}")
+    print(f"Unique patients: {cohort_first_order['patient_id'].nunique():,}")
+
+    print(f"\n=== Age Distribution ===")
+    print(f"Mean age: {cohort_first_order['age_at_admission'].mean():.1f} years")
+    print(f"Median age: {cohort_first_order['age_at_admission'].median():.1f} years")
+    print(f"Min age: {cohort_first_order['age_at_admission'].min():.0f} years")
+    print(f"Max age: {cohort_first_order['age_at_admission'].max():.0f} years")
+
+    print(f"\n=== Date Range ===")
+    print(f"First admission: {cohort_first_order['admission_dttm'].min()}")
+    print(f"Last admission: {cohort_first_order['admission_dttm'].max()}")
+
+    print(f"\n=== Year Distribution ===")
+    _year_dist = cohort_first_order['admission_dttm'].dt.year.value_counts().sort_index()
+    for _year, _count in _year_dist.items():
+        print(f"  {_year}: {_count:,} hospitalizations")
+
+    print(f"\n=== 5-Day Antibiotic Pattern ===")
+    print(f"All 5 days covered: {(cohort_first_order['all_5_days_abx'] == 1).sum():,} (100%)")
+    print(f"\nDaily antibiotic coverage:")
+    for _day in range(1, 6):
+        _covered = (cohort_first_order[f'day_{_day}_abx'] == 1).sum()
+        _pct = _covered / len(cohort_first_order) * 100
+        print(f"  Day {_day}: {_covered:,} ({_pct:.1f}%)")
+
+    print(f"\n=== Intrapleural Lytic Therapy ===")
+    _lytic_count = (cohort_first_order['received_intrapleural_lytic'] == 1).sum()
+    _no_lytic_count = (cohort_first_order['received_intrapleural_lytic'] == 0).sum()
+    print(f"Received lytics: {_lytic_count:,} ({_lytic_count/len(cohort_first_order)*100:.1f}%)")
+    print(f"No lytics: {_no_lytic_count:,} ({_no_lytic_count/len(cohort_first_order)*100:.1f}%)")
+
+    # Show dose statistics for those who received lytics
+    if _lytic_count > 0:
+        _lytics_df = cohort_first_order[cohort_first_order['received_intrapleural_lytic'] == 1]
+        print(f"\nDose statistics for those who received lytics:")
+        print(f"  Alteplase doses - Mean: {_lytics_df['n_doses_alteplase'].mean():.1f}, Median: {_lytics_df['n_doses_alteplase'].median():.0f}")
+        print(f"  Dornase alfa doses - Mean: {_lytics_df['n_doses_dornase_alfa'].mean():.1f}, Median: {_lytics_df['n_doses_dornase_alfa'].median():.0f}")
+        print(f"  Median alteplase dose - Mean: {_lytics_df[_lytics_df['median_dose_alteplase'] > 0]['median_dose_alteplase'].mean():.1f} (n={(_lytics_df['median_dose_alteplase'] > 0).sum()})")
+        print(f"  Median dornase alfa dose - Mean: {_lytics_df[_lytics_df['median_dose_dornase_alfa'] > 0]['median_dose_dornase_alfa'].mean():.1f} (n={(_lytics_df['median_dose_dornase_alfa'] > 0).sum()})")
+
+    print(f"\n=== VATS/Decortication Procedures ===")
+    _procedure_count = (cohort_first_order['received_vats_decortication'] == 1).sum()
+    _no_procedure_count = (cohort_first_order['received_vats_decortication'] == 0).sum()
+    print(f"Received VATS/decortication: {_procedure_count:,} ({_procedure_count/len(cohort_first_order)*100:.1f}%)")
+    print(f"No VATS/decortication: {_no_procedure_count:,} ({_no_procedure_count/len(cohort_first_order)*100:.1f}%)")
+
+    print(f"\n=== Treatment Modalities ===")
+    _only_abx = ((cohort_first_order['received_intrapleural_lytic'] == 0) & (cohort_first_order['received_vats_decortication'] == 0)).sum()
+    _abx_lytics = ((cohort_first_order['received_intrapleural_lytic'] == 1) & (cohort_first_order['received_vats_decortication'] == 0)).sum()
+    _abx_surgery = ((cohort_first_order['received_intrapleural_lytic'] == 0) & (cohort_first_order['received_vats_decortication'] == 1)).sum()
+    _abx_lytics_surgery = ((cohort_first_order['received_intrapleural_lytic'] == 1) & (cohort_first_order['received_vats_decortication'] == 1)).sum()
+    print(f"Antibiotics only: {_only_abx:,} ({_only_abx/len(cohort_first_order)*100:.1f}%)")
+    print(f"Antibiotics + Lytics: {_abx_lytics:,} ({_abx_lytics/len(cohort_first_order)*100:.1f}%)")
+    print(f"Antibiotics + Surgery: {_abx_surgery:,} ({_abx_surgery/len(cohort_first_order)*100:.1f}%)")
+    print(f"Antibiotics + Lytics + Surgery: {_abx_lytics_surgery:,} ({_abx_lytics_surgery/len(cohort_first_order)*100:.1f}%)")
+
+    print(f"\n=== Top 10 Organisms ===")
+    _org_counts = cohort_first_order['organism_category'].value_counts()
+    for _i, (_org, _count) in enumerate(_org_counts.head(10).items(), 1):
+        _pct = _count / len(cohort_first_order) * 100
+        print(f"  {_i}. {_org}: {_count:,} ({_pct:.1f}%)")
+    return
+
+
+@app.cell(hide_code=True)
 def _(mo):
-    mo.md(r"""## CONSORT Diagram""")
+    mo.md(r"""## Cohort Filtering Statistics""")
     return
 
 
 @app.cell
 def _(
     cohort_final,
+    cohort_first_order,
     cohort_with_abx,
     cohort_with_cultures,
     hosp_df,
     hosp_filtered,
 ):
-    # Collect all counts for CONSORT diagram
-    print("\n=== CONSORT Diagram Counts ===")
+    # Create filtering statistics dictionary
+    print("\n=== Cohort Filtering Statistics ===")
 
-    consort_data = {
-        'all_hosp': len(hosp_df),
-        'after_age_date': len(hosp_filtered),
-        'excluded_age_date': len(hosp_df) - len(hosp_filtered),
-        'with_positive_pleural': len(cohort_with_cultures),
-        'excluded_no_pleural': len(hosp_filtered) - cohort_with_cultures['hospitalization_id'].nunique(),
-        'before_5day_filter': len(cohort_with_abx),
-        'final_cohort': len(cohort_final),
-        'excluded_insufficient_abx': len(cohort_with_abx) - len(cohort_final)
+    filtering_stats = {
+        "inclusion_criteria": {
+            "age_minimum": 18,
+            "admission_date_min": "2018-01-01",
+            "admission_date_max": "2024-12-31",
+            "discharge_date_max": "2024-12-31",
+            "organism_category": "positive (not 'no growth')",
+            "fluid_category": "pleural",
+            "antibiotics_minimum_days": 5,
+            "antibiotics_group": "CMS_sepsis_qualifying_antibiotics"
+        },
+        "filtering_steps": [
+            {
+                "step": 1,
+                "description": "All hospitalizations",
+                "total_rows": len(hosp_df),
+                "unique_hospitalizations": hosp_df['hospitalization_id'].nunique(),
+                "rows_dropped": 0
+            },
+            {
+                "step": 2,
+                "description": "Age ≥18 & Admission 2018-2024",
+                "total_rows": len(hosp_filtered),
+                "unique_hospitalizations": hosp_filtered['hospitalization_id'].nunique(),
+                "rows_dropped": len(hosp_df) - len(hosp_filtered)
+            },
+            {
+                "step": 3,
+                "description": "With positive pleural culture",
+                "total_rows": len(cohort_with_cultures),
+                "unique_hospitalizations": cohort_with_cultures['hospitalization_id'].nunique(),
+                "unique_patients": cohort_with_cultures['patient_id'].nunique(),
+                "rows_dropped": len(hosp_filtered) - len(cohort_with_cultures)
+            },
+            {
+                "step": 4,
+                "description": "All 5 days IV antibiotics (before collapse)",
+                "total_rows": len(cohort_final),
+                "unique_hospitalizations": cohort_final['hospitalization_id'].nunique(),
+                "unique_patients": cohort_final['patient_id'].nunique(),
+                "rows_dropped": len(cohort_with_abx) - len(cohort_final)
+            },
+            {
+                "step": 5,
+                "description": "Collapsed to first order per hospitalization",
+                "total_rows": len(cohort_first_order),
+                "unique_hospitalizations": cohort_first_order['hospitalization_id'].nunique(),
+                "unique_patients": cohort_first_order['patient_id'].nunique(),
+                "rows_dropped": len(cohort_final) - len(cohort_first_order)
+            }
+        ],
+        "final_cohort": {
+            "total_rows": len(cohort_first_order),
+            "unique_hospitalizations": cohort_first_order['hospitalization_id'].nunique(),
+            "unique_patients": cohort_first_order['patient_id'].nunique(),
+            "with_intrapleural_lytics": int((cohort_first_order['received_intrapleural_lytic'] == 1).sum()),
+            "with_vats_decortication": int((cohort_first_order['received_vats_decortication'] == 1).sum())
+        }
     }
 
-    print(f"All hospitalizations: {consort_data['all_hosp']:,}")
-    print(f"  Excluded (age <18 or dates): {consort_data['excluded_age_date']:,}")
-    print(f"After age/date filter: {consort_data['after_age_date']:,}")
-    print(f"  Excluded (no positive pleural culture): {consort_data['excluded_no_pleural']:,}")
-    print(f"With positive pleural culture: {consort_data['with_positive_pleural']:,}")
-    print(f"  Excluded (<5 days IV antibiotics): {consort_data['excluded_insufficient_abx']:,}")
-    print(f"Final cohort: {consort_data['final_cohort']:,}")
-    return (consort_data,)
+    # Print summary
+    for step in filtering_stats['filtering_steps']:
+        print(f"Step {step['step']}: {step['description']}")
+        print(f"  Total rows: {step['total_rows']:,}")
+        if 'unique_hospitalizations' in step:
+            print(f"  Unique hospitalizations: {step['unique_hospitalizations']:,}")
+        if 'unique_patients' in step:
+            print(f"  Unique patients: {step['unique_patients']:,}")
+        if step['rows_dropped'] > 0:
+            print(f"  Rows dropped: {step['rows_dropped']:,}")
+        print()
+
+    print(f"Final cohort:")
+    print(f"  Total rows: {filtering_stats['final_cohort']['total_rows']:,}")
+    print(f"  Unique hospitalizations: {filtering_stats['final_cohort']['unique_hospitalizations']:,}")
+    print(f"  Unique patients: {filtering_stats['final_cohort']['unique_patients']:,}")
+    print(f"  With intrapleural lytics: {filtering_stats['final_cohort']['with_intrapleural_lytics']:,}")
+    print(f"  With VATS/decortication: {filtering_stats['final_cohort']['with_vats_decortication']:,}")
+    return (filtering_stats,)
 
 
 @app.cell
-def _(consort_data):
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as mpatches
-    from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
+def _(filtering_stats):
+    import json as _json
+    from pathlib import Path as _json_Path
 
-    print("\nCreating CONSORT diagram...")
+    # Save filtering statistics to JSON
+    _json_output_path = _json_Path('PHI_DATA') / 'cohort_filtering_stats.json'
+    _json_output_path.parent.mkdir(exist_ok=True)
 
-    fig, ax = plt.subplots(figsize=(10, 12))
-    ax.set_xlim(0, 10)
-    ax.set_ylim(0, 12)
-    ax.axis('off')
+    with open(_json_output_path, 'w') as _f:
+        _json.dump(filtering_stats, _f, indent=2)
 
-    # Define positions
-    y_start = 11
-    y_step = 2.5
-    box_width = 6
-    box_height = 1.2
-    x_center = 5
-
-    # Box 1: All hospitalizations
-    y1 = y_start
-    box1 = FancyBboxPatch(
-        (x_center - box_width/2, y1 - box_height/2), box_width, box_height,
-        boxstyle="round,pad=0.1", edgecolor='black', facecolor='lightblue', linewidth=2
-    )
-    ax.add_patch(box1)
-    ax.text(x_center, y1, f"All Hospitalizations\n(n={consort_data['all_hosp']:,})",
-            ha='center', va='center', fontsize=11, weight='bold')
-
-    # Exclusion 1
-    y_excl1 = y1 - y_step/2
-    ax.text(x_center - box_width/2 - 0.5, y_excl1,
-            f"Excluded: Age <18 or\nadmission outside 2018-2024\n(n={consort_data['excluded_age_date']:,})",
-            ha='right', va='center', fontsize=9, style='italic')
-
-    # Arrow 1
-    arrow1 = FancyArrowPatch(
-        (x_center, y1 - box_height/2), (x_center, y1 - y_step + box_height/2),
-        arrowstyle='->', mutation_scale=20, linewidth=2, color='black'
-    )
-    ax.add_patch(arrow1)
-
-    # Box 2: After age/date filter
-    y2 = y1 - y_step
-    box2 = FancyBboxPatch(
-        (x_center - box_width/2, y2 - box_height/2), box_width, box_height,
-        boxstyle="round,pad=0.1", edgecolor='black', facecolor='lightblue', linewidth=2
-    )
-    ax.add_patch(box2)
-    ax.text(x_center, y2, f"Age ≥18 & Admission 2018-2024\n(n={consort_data['after_age_date']:,})",
-            ha='center', va='center', fontsize=11, weight='bold')
-
-    # Exclusion 2
-    y_excl2 = y2 - y_step/2
-    ax.text(x_center - box_width/2 - 0.5, y_excl2,
-            f"Excluded: No positive\npleural culture\n(n={consort_data['excluded_no_pleural']:,})",
-            ha='right', va='center', fontsize=9, style='italic')
-
-    # Arrow 2
-    arrow2 = FancyArrowPatch(
-        (x_center, y2 - box_height/2), (x_center, y2 - y_step + box_height/2),
-        arrowstyle='->', mutation_scale=20, linewidth=2, color='black'
-    )
-    ax.add_patch(arrow2)
-
-    # Box 3: With positive pleural culture
-    y3 = y2 - y_step
-    box3 = FancyBboxPatch(
-        (x_center - box_width/2, y3 - box_height/2), box_width, box_height,
-        boxstyle="round,pad=0.1", edgecolor='black', facecolor='lightblue', linewidth=2
-    )
-    ax.add_patch(box3)
-    ax.text(x_center, y3, f"With Positive Pleural Culture\n(n={consort_data['with_positive_pleural']:,})",
-            ha='center', va='center', fontsize=11, weight='bold')
-
-    # Exclusion 3
-    y_excl3 = y3 - y_step/2
-    ax.text(x_center - box_width/2 - 0.5, y_excl3,
-            f"Excluded: <5 days\nIV antibiotics\n(n={consort_data['excluded_insufficient_abx']:,})",
-            ha='right', va='center', fontsize=9, style='italic')
-
-    # Arrow 3
-    arrow3 = FancyArrowPatch(
-        (x_center, y3 - box_height/2), (x_center, y3 - y_step + box_height/2),
-        arrowstyle='->', mutation_scale=20, linewidth=2, color='black'
-    )
-    ax.add_patch(arrow3)
-
-    # Box 4: Final cohort
-    y4 = y3 - y_step
-    box4 = FancyBboxPatch(
-        (x_center - box_width/2, y4 - box_height/2), box_width, box_height,
-        boxstyle="round,pad=0.1", edgecolor='darkgreen', facecolor='lightgreen', linewidth=3
-    )
-    ax.add_patch(box4)
-    ax.text(x_center, y4, f"FINAL COHORT\n(n={consort_data['final_cohort']:,})",
-            ha='center', va='center', fontsize=12, weight='bold')
-
-    # Title
-    ax.text(x_center, y_start + 0.8, 'CONSORT Diagram: Empyema Cohort Selection',
-            ha='center', va='center', fontsize=14, weight='bold')
-
-    plt.tight_layout()
-    print("✓ CONSORT diagram created")
-    return (fig,)
-
-
-@app.cell
-def _(fig):
-    from pathlib import Path as _Path
-
-    # Save CONSORT diagram
-    _output_path = _Path('PHI_DATA') / 'consort_diagram.png'
-    fig.savefig(_output_path, dpi=300, bbox_inches='tight', facecolor='white')
-
-    print(f"\n=== CONSORT Diagram Saved ===")
-    print(f"Location: {_output_path}")
-    print(f"Resolution: 300 dpi")
+    print(f"\n=== Filtering Statistics Saved ===")
+    print(f"Location: {_json_output_path}")
+    print(f"Format: JSON with 2-space indentation")
     return
 
 
@@ -787,7 +836,7 @@ def _(mo):
 
 
 @app.cell
-def _(cohort_final):
+def _(cohort_first_order):
     from pathlib import Path
 
     # Create PHI_DATA directory
@@ -796,14 +845,14 @@ def _(cohort_final):
 
     # Save cohort to parquet
     output_path = phi_data_dir / 'cohort_empyema_initial.parquet'
-    cohort_final.to_parquet(output_path, index=False)
+    cohort_first_order.to_parquet(output_path, index=False)
 
     print(f"\n=== Cohort Saved ===")
     print(f"Location: {output_path}")
-    print(f"Rows: {len(cohort_final):,}")
-    print(f"Columns: {len(cohort_final.columns)}")
+    print(f"Rows: {len(cohort_first_order):,}")
+    print(f"Columns: {len(cohort_first_order.columns)}")
     print(f"File size: {output_path.stat().st_size / (1024**2):.2f} MB")
-    print(f"\nColumns: {list(cohort_final.columns)}")
+    print(f"\nColumns: {list(cohort_first_order.columns)}")
     return
 
 
