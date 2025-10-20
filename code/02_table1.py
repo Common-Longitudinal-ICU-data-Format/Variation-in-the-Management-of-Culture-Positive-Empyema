@@ -30,6 +30,9 @@ def _(mo):
     - vasopressor_ever (binary flag)
     - sofa_total (max during first 24h from 1st order)
     - NIPPV_ever, HFNO_ever, IMV_ever (respiratory support)
+    - elixhauser_score (comorbidity index from hospital diagnoses)
+    - cci_score (Charlson Comorbidity Index from hospital diagnoses)
+    - chronic_pulmonary_disease (binary flag from comorbidity indices)
 
     **Outcomes:**
     - hospital_los_days
@@ -65,9 +68,10 @@ def _():
     import numpy as np
     import json
     from pathlib import Path
-    from clifpy.tables import Patient, Vitals, MedicationAdminContinuous, MedicationAdminIntermittent, RespiratorySupport, Adt, Labs
+    from clifpy.tables import Patient, Vitals, MedicationAdminContinuous, MedicationAdminIntermittent, RespiratorySupport, Adt, Labs, HospitalDiagnosis
     from clifpy.clif_orchestrator import ClifOrchestrator
     from clifpy.utils.outlier_handler import apply_outlier_handling
+    from clifpy.utils.comorbidity import calculate_elix, calculate_cci
     import warnings
     warnings.filterwarnings('ignore')
 
@@ -82,6 +86,7 @@ def _():
     return (
         Adt,
         ClifOrchestrator,
+        HospitalDiagnosis,
         Labs,
         MedicationAdminContinuous,
         MedicationAdminIntermittent,
@@ -90,6 +95,8 @@ def _():
         RespiratorySupport,
         Vitals,
         apply_outlier_handling,
+        calculate_cci,
+        calculate_elix,
         pd,
         site_name,
     )
@@ -161,7 +168,7 @@ def _(adt_df, pd):
     print(f"✓ ICU LOS calculated for {len(icu_los_summary):,} hospitalizations")
     print(f"  Mean ICU LOS: {icu_los_summary['icu_los_days'].mean():.2f} days")
     print(f"  Median ICU LOS: {icu_los_summary['icu_los_days'].median():.2f} days")
-    return (icu_los_summary,)
+    return icu_adt, icu_los_summary
 
 
 @app.cell
@@ -186,7 +193,7 @@ def _(cohort_base, icu_los_summary, pd):
 
 
 @app.cell
-def _(icu_adt, pd):
+def _(pd):
     # Helper function to filter medications to ICU locations only
     def filter_meds_to_icu_only(med_df, icu_adt_df):
         """
@@ -290,6 +297,124 @@ def _(Patient, cohort_with_icu_los, pd):
     return (cohort_with_demo,)
 
 
+@app.cell
+def _(mo):
+    mo.md(r"""## Calculate Comorbidity Scores (Elixhauser & CCI)""")
+    return
+
+
+@app.cell
+def _(HospitalDiagnosis, cohort_with_demo):
+    # Load hospital diagnosis data for comorbidity calculation
+    print("\n=== Comorbidity Score Calculation ===")
+    print("Loading hospital diagnosis data...")
+
+    cohort_hosp_ids_dx = cohort_with_demo['hospitalization_id'].astype(str).unique().tolist()
+
+    hosp_dx_table = HospitalDiagnosis.from_file(
+        config_path='clif_config.json',
+        filters={
+            'hospitalization_id': cohort_hosp_ids_dx
+        },
+        columns=['hospitalization_id', 'diagnosis_code', 'diagnosis_code_format']
+    )
+
+    print(f"✓ Hospital diagnosis data loaded: {len(hosp_dx_table.df):,} records")
+    print(f"  Unique hospitalizations: {hosp_dx_table.df['hospitalization_id'].nunique():,}")
+    print(f"  ICD10CM codes: {(hosp_dx_table.df['diagnosis_code_format'] == 'ICD10CM').sum():,}")
+    return (hosp_dx_table,)
+
+
+@app.cell
+def _(calculate_elix, hosp_dx_table):
+    # Calculate Elixhauser Comorbidity Index
+    print("\nCalculating Elixhauser Comorbidity Index...")
+
+    elix_results = calculate_elix(hosp_dx_table, hierarchy=True)
+
+    print(f"\n✓ Elixhauser scores calculated: {len(elix_results):,} hospitalizations")
+    print(f"  Mean Elixhauser score: {elix_results['elix_score'].mean():.2f}")
+    print(f"  Median Elixhauser score: {elix_results['elix_score'].median():.2f}")
+    print(f"  Range: {elix_results['elix_score'].min():.0f} to {elix_results['elix_score'].max():.0f}")
+    return (elix_results,)
+
+
+@app.cell
+def _(calculate_cci, hosp_dx_table):
+    # Calculate Charlson Comorbidity Index
+    print("\nCalculating Charlson Comorbidity Index (CCI)...")
+
+    cci_results = calculate_cci(hosp_dx_table, hierarchy=True)
+
+    print(f"\n✓ CCI scores calculated: {len(cci_results):,} hospitalizations")
+    print(f"  Mean CCI score: {cci_results['cci_score'].mean():.2f}")
+    print(f"  Median CCI score: {cci_results['cci_score'].median():.2f}")
+    print(f"  Range: {cci_results['cci_score'].min():.0f} to {cci_results['cci_score'].max():.0f}")
+    return (cci_results,)
+
+
+@app.cell
+def _(cci_results, cohort_with_demo, elix_results, pd):
+    # Merge comorbidity scores to cohort
+    print("\nMerging comorbidity scores to cohort...")
+
+    # Merge Elixhauser scores (select score and chronic_pulmonary column)
+    elix_cols_to_merge = ['hospitalization_id', 'elix_score']
+    # Check if chronic_pulmonary column exists (may be named differently)
+    elix_chronic_col = None
+    for col in elix_results.columns:
+        if 'chronic' in col.lower() and 'pulmonary' in col.lower():
+            elix_chronic_col = col
+            elix_cols_to_merge.append(col)
+            break
+
+    cohort_with_elix = pd.merge(
+        cohort_with_demo,
+        elix_results[elix_cols_to_merge],
+        on='hospitalization_id',
+        how='left'
+    )
+
+    # Merge CCI scores (select score and chronic_pulmonary_disease column)
+    cci_cols_to_merge = ['hospitalization_id', 'cci_score']
+    # Check if chronic_pulmonary_disease column exists
+    cci_chronic_col = None
+    for col in cci_results.columns:
+        if 'chronic' in col.lower() and 'pulmonary' in col.lower():
+            cci_chronic_col = col
+            cci_cols_to_merge.append(col)
+            break
+
+    cohort_with_comorbidity = pd.merge(
+        cohort_with_elix,
+        cci_results[cci_cols_to_merge],
+        on='hospitalization_id',
+        how='left',
+        suffixes=('', '_cci')
+    )
+
+    # Create unified chronic_pulmonary_disease flag (1 if present in either index)
+    if elix_chronic_col or cci_chronic_col:
+        chronic_cols = []
+        if elix_chronic_col:
+            chronic_cols.append(cohort_with_comorbidity[elix_chronic_col])
+        if cci_chronic_col:
+            chronic_cols.append(cohort_with_comorbidity[cci_chronic_col])
+
+        # Take max across available columns (1 if present in any)
+        cohort_with_comorbidity['chronic_pulmonary_disease'] = pd.concat(chronic_cols, axis=1).max(axis=1).fillna(0).astype(int)
+    else:
+        # If no chronic pulmonary column found, set to 0
+        cohort_with_comorbidity['chronic_pulmonary_disease'] = 0
+        print("  Warning: No chronic pulmonary disease column found in comorbidity results")
+
+    print(f"✓ Comorbidity scores merged: {len(cohort_with_comorbidity):,} hospitalizations")
+    print(f"  Elixhauser available: {cohort_with_comorbidity['elix_score'].notna().sum():,}")
+    print(f"  CCI available: {cohort_with_comorbidity['cci_score'].notna().sum():,}")
+    print(f"  Chronic pulmonary disease: {(cohort_with_comorbidity['chronic_pulmonary_disease'] == 1).sum():,} ({(cohort_with_comorbidity['chronic_pulmonary_disease'] == 1).mean()*100:.1f}%)")
+    return (cohort_with_comorbidity,)
+
+
 @app.cell(hide_code=True)
 def _(mo):
     mo.md(r"""## Calculate Hospital LOS and Mortality""")
@@ -297,11 +422,11 @@ def _(mo):
 
 
 @app.cell
-def _(cohort_with_demo):
+def _(cohort_with_comorbidity):
     # Calculate hospital_los_days
     print("\nCalculating hospital LOS and mortality...")
 
-    cohort_with_outcomes = cohort_with_demo.copy()
+    cohort_with_outcomes = cohort_with_comorbidity.copy()
 
     # Hospital LOS in days
     cohort_with_outcomes['hospital_los_days'] = (
@@ -1207,6 +1332,23 @@ def _(cohort_stratified, format_count_pct, suppress_count):
         if 'culture_fungus' in df.columns:
             fungal_count = (df['culture_fungus'] == 1).sum()
             stats['Fungal Culture'] = format_count_pct(fungal_count, n_total)
+
+        # Comorbidity Scores
+        if 'elix_score' in df.columns:
+            stats['Elixhauser Score (mean ± SD)'] = f"{df['elix_score'].mean():.1f} ± {df['elix_score'].std():.1f}"
+            stats['Elixhauser Score (median [IQR])'] = f"{df['elix_score'].median():.1f} [{df['elix_score'].quantile(0.25):.1f}, {df['elix_score'].quantile(0.75):.1f}]"
+            missing_count = df['elix_score'].isna().sum()
+            stats['Elixhauser Score missing'] = format_count_pct(missing_count, n_total)
+
+        if 'cci_score' in df.columns:
+            stats['CCI Score (mean ± SD)'] = f"{df['cci_score'].mean():.1f} ± {df['cci_score'].std():.1f}"
+            stats['CCI Score (median [IQR])'] = f"{df['cci_score'].median():.1f} [{df['cci_score'].quantile(0.25):.1f}, {df['cci_score'].quantile(0.75):.1f}]"
+            missing_count = df['cci_score'].isna().sum()
+            stats['CCI Score missing'] = format_count_pct(missing_count, n_total)
+
+        if 'chronic_pulmonary_disease' in df.columns:
+            chronic_pulm_count = (df['chronic_pulmonary_disease'] == 1).sum()
+            stats['Chronic Pulmonary Disease'] = format_count_pct(chronic_pulm_count, n_total)
 
         # Vitals
         for col, name in [('highest_temperature', 'Highest Temp (°C)'),
