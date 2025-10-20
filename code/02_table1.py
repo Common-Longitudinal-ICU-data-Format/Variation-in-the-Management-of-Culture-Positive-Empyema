@@ -35,14 +35,19 @@ def _(mo):
     - hospital_los_days
     - inpatient_mortality
 
-    **Antibiotics (Ever Flags):**
+    **Antibiotics & Antifungals (Ever Flags - ICU Only):**
     - cefepime, ceftriaxone, piperacillin_tazobactam, ampicillin_sulbactam
     - vancomycin, metronidazole, clindamycin
     - meropenem, imipenem, ertapenem
     - gentamicin, amikacin
     - levofloxacin, ciprofloxacin
+    - amoxicillin_clavulanate
+    - fluconazole, micafungin, voriconazole, posaconazole, itraconazole
 
-    All time-based features filtered to stay window: 1st order_dttm → discharge_dttm
+    **Time Windows:**
+    - Vitals, Labs, SOFA: Entire stay window (1st order_dttm → discharge_dttm)
+    - Medications (vasopressors, antibiotics, antifungals): ICU locations only after order_dttm
+    - Respiratory support: Entire stay window (1st order_dttm → discharge_dttm)
     """
     )
     return
@@ -178,6 +183,49 @@ def _(cohort_base, icu_los_summary, pd):
     print(f"  With ICU stay: {(cohort_with_icu_los['icu_los_days'] > 0).sum():,}")
     print(f"  Without ICU stay: {(cohort_with_icu_los['icu_los_days'] == 0).sum():,}")
     return (cohort_with_icu_los,)
+
+
+@app.cell
+def _(icu_adt, pd):
+    # Helper function to filter medications to ICU locations only
+    def filter_meds_to_icu_only(med_df, icu_adt_df):
+        """
+        Filter medication dataframe to only include administrations during ICU stays.
+
+        Parameters:
+        - med_df: DataFrame with columns [hospitalization_id, admin_dttm, ...]
+        - icu_adt_df: DataFrame with ICU location periods [hospitalization_id, in_dttm, out_dttm]
+
+        Returns:
+        - DataFrame with only medications administered during ICU stays
+        """
+        print("  Filtering medications to ICU locations only...")
+        print(f"    Before ICU filter: {len(med_df):,} medication records")
+
+        # Merge medications with ICU periods
+        med_with_icu = pd.merge(
+            med_df,
+            icu_adt_df[['hospitalization_id', 'in_dttm', 'out_dttm']],
+            on='hospitalization_id',
+            how='inner'
+        )
+
+        # Keep only medications given during ICU stay (between in_dttm and out_dttm)
+        med_icu_only = med_with_icu[
+            (med_with_icu['admin_dttm'] >= med_with_icu['in_dttm']) &
+            (med_with_icu['admin_dttm'] <= med_with_icu['out_dttm'])
+        ].copy()
+
+        # Drop ICU period columns and remove duplicates (same med admin might match multiple ICU periods)
+        med_icu_only = med_icu_only.drop(columns=['in_dttm', 'out_dttm']).drop_duplicates()
+
+        print(f"    After ICU filter: {len(med_icu_only):,} medication records")
+        print(f"    Removed {len(med_df) - len(med_icu_only):,} non-ICU medications ({(len(med_df) - len(med_icu_only))/len(med_df)*100:.1f}%)")
+
+        return med_icu_only
+
+    print("\n✓ ICU medication filter function created")
+    return (filter_meds_to_icu_only,)
 
 
 @app.cell(hide_code=True)
@@ -428,9 +476,9 @@ def _(MedicationAdminContinuous, cohort_with_vitals):
 
 
 @app.cell
-def _(cohort_with_vitals, pd, vaso_df):
-    # Filter vasopressors to stay window
-    print("\nFiltering vasopressors to stay window...")
+def _(cohort_with_vitals, filter_meds_to_icu_only, icu_adt, pd, vaso_df):
+    # Filter vasopressors to stay window and ICU locations only
+    print("\nFiltering vasopressors to stay window and ICU locations...")
 
     vaso_with_window = pd.merge(
         vaso_df,
@@ -444,14 +492,17 @@ def _(cohort_with_vitals, pd, vaso_df):
         (vaso_with_window['admin_dttm'] <= vaso_with_window['discharge_dttm'])
     ].copy()
 
-    print(f"✓ Vasopressors filtered to stay: {len(vaso_stay):,} records")
+    print(f"  Vasopressors filtered to stay: {len(vaso_stay):,} records")
+
+    # Filter to ICU locations only
+    vaso_icu = filter_meds_to_icu_only(vaso_stay, icu_adt)
 
     # Create binary flag
-    vaso_summary = vaso_stay.groupby('hospitalization_id').size().reset_index()
+    vaso_summary = vaso_icu.groupby('hospitalization_id').size().reset_index()
     vaso_summary.columns = ['hospitalization_id', 'vaso_count']
     vaso_summary['vasopressor_ever'] = 1
 
-    print(f"✓ Vasopressor flag created for {len(vaso_summary):,} hospitalizations")
+    print(f"✓ ICU vasopressor flag created for {len(vaso_summary):,} hospitalizations")
     return (vaso_summary,)
 
 
@@ -467,8 +518,8 @@ def _(cohort_with_vitals, pd, vaso_summary):
 
     cohort_with_vaso['vasopressor_ever'] = cohort_with_vaso['vasopressor_ever'].fillna(0).astype(int)
 
-    print(f"\n✓ Vasopressor flag merged")
-    print(f"  With vasopressors: {(cohort_with_vaso['vasopressor_ever'] == 1).sum():,} ({(cohort_with_vaso['vasopressor_ever'] == 1).mean()*100:.1f}%)")
+    print(f"\n✓ ICU vasopressor flag merged")
+    print(f"  With ICU vasopressors: {(cohort_with_vaso['vasopressor_ever'] == 1).sum():,} ({(cohort_with_vaso['vasopressor_ever'] == 1).mean()*100:.1f}%)")
     return (cohort_with_vaso,)
 
 
@@ -909,7 +960,9 @@ def _(MedicationAdminIntermittent, cohort_with_labs_before):
         'vancomycin', 'metronidazole', 'clindamycin',
         'meropenem', 'imipenem', 'ertapenem',
         'gentamicin', 'amikacin',
-        'levofloxacin', 'ciprofloxacin'
+        'levofloxacin', 'ciprofloxacin',
+        'amoxicillin_clavulanate',
+        'fluconazole', 'micafungin', 'voriconazole', 'posaconazole', 'itraconazole'
     ]
 
     abx_hosp_ids = cohort_with_labs_before['hospitalization_id'].astype(str).unique().tolist()
@@ -930,9 +983,9 @@ def _(MedicationAdminIntermittent, cohort_with_labs_before):
 
 
 @app.cell
-def _(abx_df, cohort_with_labs_before, pd):
-    # Filter antibiotics to stay window
-    print("\nFiltering antibiotics to stay window...")
+def _(abx_df, cohort_with_labs_before, filter_meds_to_icu_only, icu_adt, pd):
+    # Filter antibiotics to stay window and ICU locations only
+    print("\nFiltering antibiotics to stay window and ICU locations...")
 
     abx_with_window = pd.merge(
         abx_df,
@@ -946,33 +999,38 @@ def _(abx_df, cohort_with_labs_before, pd):
         (abx_with_window['admin_dttm'] <= abx_with_window['discharge_dttm'])
     ].copy()
 
-    print(f"✓ Antibiotics filtered to stay: {len(abx_stay):,} records")
-    return (abx_stay,)
+    print(f"  Antibiotics filtered to stay: {len(abx_stay):,} records")
+
+    # Filter to ICU locations only
+    abx_icu = filter_meds_to_icu_only(abx_stay, icu_adt)
+
+    print(f"✓ ICU antibiotics filtered: {len(abx_icu):,} records")
+    return (abx_icu,)
 
 
 @app.cell
-def _(abx_stay, antibiotic_categories):
-    # Create ever flags for each antibiotic
-    print("\nCreating antibiotic ever flags...")
+def _(abx_icu, antibiotic_categories):
+    # Create ever flags for each antibiotic (ICU only)
+    print("\nCreating ICU antibiotic ever flags...")
 
-    # Get unique hospitalizations with each antibiotic
+    # Get unique hospitalizations with each antibiotic in ICU
     abx_flags_list = []
 
     for abx_cat in antibiotic_categories:
-        abx_subset = abx_stay[abx_stay['med_category'] == abx_cat]['hospitalization_id'].unique()
+        abx_subset = abx_icu[abx_icu['med_category'] == abx_cat]['hospitalization_id'].unique()
         abx_flags_list.append({
             'antibiotic': abx_cat,
             'hospitalizations': set(abx_subset)
         })
 
-    print(f"✓ Antibiotic ever flags prepared for {len(antibiotic_categories)} antibiotics")
+    print(f"✓ ICU antibiotic ever flags prepared for {len(antibiotic_categories)} antibiotics")
     return (abx_flags_list,)
 
 
 @app.cell
 def _(abx_flags_list, cohort_with_labs_before):
-    # Add flags to cohort
-    print("\nAdding antibiotic flags to cohort...")
+    # Add ICU antibiotic flags to cohort
+    print("\nAdding ICU antibiotic flags to cohort...")
 
     cohort_with_abx = cohort_with_labs_before.copy()
 
@@ -987,9 +1045,9 @@ def _(abx_flags_list, cohort_with_labs_before):
 
         abx_count = cohort_with_abx[col_name].sum()
         abx_pct = abx_count / len(cohort_with_abx) * 100
-        print(f"  {abx_category_name}: {abx_count:,} ({abx_pct:.1f}%)")
+        print(f"  {abx_category_name} (ICU): {abx_count:,} ({abx_pct:.1f}%)")
 
-    print(f"\n✓ All antibiotic flags added")
+    print(f"\n✓ All ICU antibiotic flags added")
     return (cohort_with_abx,)
 
 
@@ -1144,6 +1202,11 @@ def _(cohort_stratified, format_count_pct, suppress_count):
             polymicrobial_count = (df['organism_count'] > 1).sum()
             stats['Monomicrobial'] = format_count_pct(monomicrobial_count, n_total)
             stats['Polymicrobial'] = format_count_pct(polymicrobial_count, n_total)
+
+        # Fungal culture
+        if 'culture_fungus' in df.columns:
+            fungal_count = (df['culture_fungus'] == 1).sum()
+            stats['Fungal Culture'] = format_count_pct(fungal_count, n_total)
 
         # Vitals
         for col, name in [('highest_temperature', 'Highest Temp (°C)'),

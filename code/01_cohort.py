@@ -176,6 +176,26 @@ def _(MicrobiologyCulture, hosp_filtered):
 
     print(f"  After no_growth filter: {len(micro_positive):,}")
     print(f"✓ Positive pleural cultures: {len(micro_positive):,}")
+
+    # Exclude hospitalizations with tuberculosis or mycobacterium
+    print(f"\nExcluding hospitalizations with tuberculosis or mycobacterium...")
+    print(f"  Before TB/Mycobacterium filter: {len(micro_positive):,} culture records")
+    print(f"  Unique hospitalizations: {micro_positive['hospitalization_id'].nunique():,}")
+
+    # Find hospitalizations with TB/Mycobacterium in any culture
+    tb_myco_hosps = micro_positive[
+        micro_positive['organism_category'].str.lower().str.contains('tuberculosis|mycobacterium', na=False)
+    ]['hospitalization_id'].unique()
+
+    print(f"  Hospitalizations with TB/Mycobacterium: {len(tb_myco_hosps):,}")
+
+    # Exclude these hospitalizations
+    micro_positive = micro_positive[
+        ~micro_positive['hospitalization_id'].isin(tb_myco_hosps)
+    ].copy()
+
+    print(f"  After TB/Mycobacterium filter: {len(micro_positive):,} culture records")
+    print(f"  Unique hospitalizations: {micro_positive['hospitalization_id'].nunique():,}")
     return (micro_positive,)
 
 
@@ -605,7 +625,7 @@ def _(cohort_final):
         'discharge_category': 'first',
         'order_dttm': 'first',  # Keep earliest order_dttm
         'fluid_category': 'first',
-        'organism_category': lambda x: '; '.join(sorted('; '.join(x).split('; '))),  # Merge all organisms (keep duplicates)
+        'organism_category': lambda x: '; '.join(sorted(set('; '.join(x).split('; ')))),  # Merge all organisms (distinct only)
         # Antibiotic pattern columns (keep first, should be same if all 5 days covered)
         'day_1_abx': 'first',
         'day_2_abx': 'first',
@@ -625,6 +645,11 @@ def _(cohort_final):
 
     # Recalculate organism_count from the merged organism_category string
     cohort_first_order['organism_count'] = cohort_first_order['organism_category'].str.count(';') + 1
+
+    # Add fungal culture flag
+    cohort_first_order['culture_fungus'] = cohort_first_order['organism_category'].str.lower().str.contains(
+        'candida|aspergillus|fungus', na=False
+    ).astype(int)
 
     print(f"\nAfter collapse: {len(cohort_first_order):,} rows (one per hospitalization)")
     print(f"  Unique hospitalizations: {cohort_first_order['hospitalization_id'].nunique():,}")
@@ -694,6 +719,12 @@ def _(cohort_first_order):
     print(f"Received VATS/decortication: {_procedure_count:,} ({_procedure_count/len(cohort_first_order)*100:.1f}%)")
     print(f"No VATS/decortication: {_no_procedure_count:,} ({_no_procedure_count/len(cohort_first_order)*100:.1f}%)")
 
+    print(f"\n=== Fungal Cultures ===")
+    _fungal_count = (cohort_first_order['culture_fungus'] == 1).sum()
+    _no_fungal_count = (cohort_first_order['culture_fungus'] == 0).sum()
+    print(f"Fungal organisms: {_fungal_count:,} ({_fungal_count/len(cohort_first_order)*100:.1f}%)")
+    print(f"Non-fungal organisms: {_no_fungal_count:,} ({_no_fungal_count/len(cohort_first_order)*100:.1f}%)")
+
     print(f"\n=== Treatment Modalities ===")
     _only_abx = ((cohort_first_order['received_intrapleural_lytic'] == 0) & (cohort_first_order['received_vats_decortication'] == 0)).sum()
     _abx_lytics = ((cohort_first_order['received_intrapleural_lytic'] == 1) & (cohort_first_order['received_vats_decortication'] == 0)).sum()
@@ -741,6 +772,9 @@ def _(
             "antibiotics_minimum_days": 5,
             "antibiotics_group": "CMS_sepsis_qualifying_antibiotics"
         },
+        "exclusion_criteria": {
+            "tuberculosis_mycobacterium": "Entire hospitalization excluded if any culture contains tuberculosis or mycobacterium"
+        },
         "filtering_steps": [
             {
                 "step": 1,
@@ -786,7 +820,8 @@ def _(
             "unique_hospitalizations": cohort_first_order['hospitalization_id'].nunique(),
             "unique_patients": cohort_first_order['patient_id'].nunique(),
             "with_intrapleural_lytics": int((cohort_first_order['received_intrapleural_lytic'] == 1).sum()),
-            "with_vats_decortication": int((cohort_first_order['received_vats_decortication'] == 1).sum())
+            "with_vats_decortication": int((cohort_first_order['received_vats_decortication'] == 1).sum()),
+            "with_fungal_culture": int((cohort_first_order['culture_fungus'] == 1).sum())
         }
     }
 
@@ -808,6 +843,7 @@ def _(
     print(f"  Unique patients: {filtering_stats['final_cohort']['unique_patients']:,}")
     print(f"  With intrapleural lytics: {filtering_stats['final_cohort']['with_intrapleural_lytics']:,}")
     print(f"  With VATS/decortication: {filtering_stats['final_cohort']['with_vats_decortication']:,}")
+    print(f"  With fungal culture: {filtering_stats['final_cohort']['with_fungal_culture']:,}")
     return (filtering_stats,)
 
 
