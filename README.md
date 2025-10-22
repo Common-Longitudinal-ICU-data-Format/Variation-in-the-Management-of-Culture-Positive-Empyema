@@ -58,6 +58,54 @@ Create/update `clif_config.json` (rename _template.json) with your site-specific
 }
 ```
 
+## Execution Guide
+
+### Step 1: Generate Empyema Cohort
+
+This step identifies eligible hospitalizations, applies inclusion/exclusion criteria, and stratifies patients into treatment cohorts.
+
+**Mac/Linux (with logging)**:
+
+``` bash
+mkdir -p logs
+uv run marimo run code/01_cohort.py 2>&1 | tee logs/01_cohort_output.log
+```
+
+**Windows PowerShell (with logging)**:
+
+``` powershell
+New-Item -ItemType Directory -Force -Path logs
+uv run marimo run code/01_cohort.py 2>&1 | Tee-Object -FilePath logs/01_cohort_output.log
+```
+
+**Troubleshooting**: If you encounter errors, run in edit mode to see cell-level execution:
+
+``` bash
+uv run marimo edit code/01_cohort.py
+```
+
+### Step 2: Add Clinical Features and Generate Table 1
+
+This step adds clinical features to the cohort and generates Table 1 summary statistics stratified by treatment group.
+
+**Mac/Linux (with logging)**:
+
+``` bash
+uv run marimo run code/02_table1.py 2>&1 | tee logs/02_table1_output.log
+```
+
+**Windows PowerShell (with logging)**:
+
+``` powershell
+uv run marimo run code/02_table1.py 2>&1 | Tee-Object -FilePath logs/02_table1_output.log
+```
+
+**Troubleshooting**:
+
+``` bash
+uv run marimo edit code/02_table1.py
+```
+
 ## Required CLIF Tables
 
 | Table | Columns | Categories/Filters |
@@ -139,8 +187,9 @@ All features are computed within the hospitalization window:
 - BMI (first documented value during hospitalization)
 
 ### Comorbidities
-- Charlson Comorbidity Index
-- Charlson chronic pulmonary disease
+- Elixhauser Comorbidity Index
+- Charlson Comorbidity Index (CCI)
+- Chronic pulmonary disease (from Elixhauser or CCI)
 
 ### Vital Signs
 - `highest_temperature` (°C) - Maximum temperature during hospitalization
@@ -152,25 +201,36 @@ All features are computed within the hospitalization window:
 - `highest_creatinine_before_culture` (mg/dL) - Maximum creatinine before pleural culture order
 
 ### Interventions
-- `vasopressor_ever` (binary) - Any vasopressor usage during hospitalization
-- `NIPPV_ever` (binary) - Non-invasive positive pressure ventilation usage
-- `HFNO_ever` (binary) - High-flow nasal cannula usage
-- `CVVH_ever` (binary) - Continuous venovenous hemofiltration in ICU or ED (non-missing blood_flow > 0)
-- `ICU_ever` (binary) - Any ICU admission during hospitalization
+- `vasopressor_ever` (binary) - Any vasopressor usage in ICU locations after culture order
+- `NIPPV_ever` (binary) - Non-invasive positive pressure ventilation usage during hospitalization
+- `HFNO_ever` (binary) - High-flow nasal cannula usage during hospitalization
+- `IMV_ever` (binary) - Invasive mechanical ventilation usage during hospitalization
+- `ICU_ever` (binary) - Any ICU admission during hospitalization (derived from ICU LOS > 0)
 
 ### Severity Scores
-- `highest_SOFA_score` - Maximum Sequential Organ Failure Assessment score (computed via clifpy ClifOrchestrator)
+- `sofa_total` - Sequential Organ Failure Assessment score in first 24h from culture order (computed via clifpy ClifOrchestrator)
 
 ### Microbiology
-- Top 10 most common organism categories from pleural cultures
-- Co-positive cultures: Same organism in blood/buffy coat during hospitalization
+- `organism_category` - Organisms from pleural cultures (combined for polymicrobial cultures)
+- `organism_count` - Number of distinct organisms in pleural culture (1 = monomicrobial, >1 = polymicrobial)
+- `culture_fungus` (binary) - Presence of fungal organisms (Candida, Aspergillus)
 
-### Treatment Characteristics (Intrapleural Lytics Cohort Only)
-- Number of alteplase doses administered
-- Number of dornase_alpha doses administered
+### Treatment Characteristics
+- `received_intrapleural_lytic` (binary) - Received alteplase or dornase_alfa via intrapleural route
+- `n_doses_alteplase` - Number of alteplase doses administered
+- `n_doses_dornase_alfa` - Number of dornase_alfa doses administered
+- `median_dose_alteplase` - Median dose of alteplase per patient (mg)
+- `median_dose_dornase_alfa` - Median dose of dornase_alfa per patient (mg)
+- `received_vats_decortication` (binary) - Received VATS or decortication procedure
+- `treatment_group` - Assigned treatment group (antibiotics_only, intrapleural_lytics, vats_cohort)
+
+### Antibiotic and Antifungal Exposure (ICU Only)
+Binary flags for each medication administered in ICU locations after culture order:
+- Antibiotics: cefepime, ceftriaxone, piperacillin_tazobactam, ampicillin_sulbactam, vancomycin, metronidazole, clindamycin, meropenem, imipenem, ertapenem, gentamicin, amikacin, levofloxacin, ciprofloxacin, amoxicillin_clavulanate
+- Antifungals: fluconazole, micafungin, voriconazole, posaconazole, itraconazole
 
 ### Outcomes
-- `ICU_los_days` - ICU length of stay (days) - for patients with ICU admission
+- `icu_los_days` - ICU length of stay (days) - 0 if no ICU admission
 - `hospital_los_days` - Hospital length of stay (days)
 - `inpatient_mortality` (binary) - Death during hospitalization
 
@@ -207,41 +267,13 @@ For each hospitalization, compute:
 - SOFA scores (using clifpy ClifOrchestrator)
 - Microbiology results
 
-### Step 4: Calculate Patient-Days (PD) per Cohort
-
-Calculate total patient-days for each cohort using 24-hour windows from admission to discharge.
-
-**Formula**: `PD = Σ (hospital_los_days for all hospitalizations in cohort)`
-
-### Step 5: Calculate Days of Therapy (DOT) per Antibiotic
-
-For each antibiotic listed in the Table 1 variables:
-
-1. Count the number of 24-hour windows containing ≥1 dose of that antibiotic
-2. If antibiotic is administered at any time during a window → count as **1 DOT**
-3. Sum DOT across all hospitalizations in the cohort
-
-**Formula**: `DOT = Number of windows with ≥1 dose of antibiotic`
-
-### Step 6: Calculate DOT per 1000 PD per Cohort
-
-For each antibiotic and each cohort:
-
-**Formula**: `DOT per 1000 PD = (Total DOT for antibiotic / Total PD) × 1000`
-
-**Example**:
-- Antibiotic-Only Cohort: Total PD = 25,000
-- Vancomycin DOT in Antibiotic-Only Cohort = 3,500
-- Vancomycin DOT per 1000 PD = (3,500 / 25,000) × 1000 = **140**
-
-### Step 7: Generate Table 1 Summary Statistics
+### Step 4: Generate Table 1 Summary Statistics
 
 Compute summary statistics for all variables stratified by cohort:
 - Continuous variables: mean ± SD, median [IQR]
 - Categorical variables: n (%)
-- DOT per 1000 PD for specified antibiotics
 
-### Step 8: Statistical Comparisons
+### Step 5: Statistical Comparisons
 
 Compare characteristics across three cohorts using:
 - ANOVA or Kruskal-Wallis for continuous variables
@@ -252,8 +284,6 @@ Compare characteristics across three cohorts using:
 
 | Metric | Abbreviation | Definition |
 |--------|--------------|------------|
-| Days of Therapy | DOT | Number of 24-hour windows where patient receives ≥1 dose of antibiotic |
-| Patient-Days | PD | Total number of 24-hour windows across all hospitalizations in a cohort |
 | Intrapleural Fibrinolytic Therapy | - | Alteplase or dornase alpha administered via intrapleural route |
 | VATS | - | Video-assisted thoracoscopic surgery with decortication |
 | Sequential Organ Failure Assessment | SOFA | Organ dysfunction score (computed via clifpy ClifOrchestrator) |
@@ -275,36 +305,41 @@ The following variables will be summarized and stratified by treatment cohort:
 - BMI (first documented) (mean, SD)
 
 ### Comorbidities
-- Charlson Comorbidity Index (mean, SD)
-- Charlson Chronic Pulmonary Disease (n, %)
+- Elixhauser Comorbidity Index (mean, SD, median, IQR)
+- Charlson Comorbidity Index (CCI) (mean, SD, median, IQR)
+- Chronic Pulmonary Disease (n, %)
 
 ### Vital Signs
-- Highest temperature (mean, SD)
-- Lowest temperature (mean, SD)
-- Lowest mean arterial pressure in ED/ward/ICU (mean, SD)
+- Highest temperature (mean, SD, median, IQR)
+- Lowest temperature (mean, SD, median, IQR)
+- Lowest mean arterial pressure (MAP) in ED/ward/ICU (mean, SD, median, IQR)
 
 ### Severity
-- Highest SOFA score (mean, SD)
+- SOFA score in first 24h from culture order (mean, SD, median, IQR)
 
 ### Interventions
-- Vasopressor ever (n, %)
+- Vasopressor ever (ICU only) (n, %)
 - NIPPV ever (n, %)
 - HFNO ever (n, %)
-- CVVH in ICU or ED (n, %)
+- IMV ever (n, %)
 
 ### Laboratory Values (Pre-Culture)
-- Highest WBC before culture (mean, SD)
-- Highest creatinine before culture (mean, SD)
+- Highest WBC before culture (mean, SD, median, IQR)
+- Highest creatinine before culture (mean, SD, median, IQR)
 
 ### Treatment-Specific (Intrapleural Lytics Cohort Only)
-- Number of alteplase doses (mean, SD)
-- Number of dornase_alpha doses (mean, SD)
+Among patients who received each lytic:
+- Number of alteplase doses (mean, SD, median, IQR)
+- Number of dornase_alfa doses (mean, SD, median, IQR)
+- Median dose per patient of alteplase (mean, SD, median, IQR)
+- Median dose per patient of dornase_alfa (mean, SD, median, IQR)
 
 ### Microbiology (Pleural Culture)
-- 1st-10th most common organism_category (n, % of total)
-- N, % patients with co-positive culture of same organism_category in blood/buffy coat during hospitalization
+- Monomicrobial vs Polymicrobial (n, %)
+- Fungal culture (n, %)
 
-### Antibiotic Days of Therapy per 1000 PD
+### Antibiotics and Antifungals (Ever Used in ICU)
+Binary flags indicating if medication was administered in ICU locations after culture order:
 - Cefepime
 - Ceftriaxone
 - Piperacillin-Tazobactam
@@ -319,60 +354,18 @@ The following variables will be summarized and stratified by treatment cohort:
 - Amikacin
 - Levofloxacin
 - Ciprofloxacin
+- Amoxicillin-Clavulanate
+- Fluconazole
+- Micafungin
+- Voriconazole
+- Posaconazole
+- Itraconazole
 
 ### Outcomes
 - ICU ever (n, %)
-- ICU length of stay days (mean, SD) - among those with ICU admission
-- Hospital length of stay days (mean, SD)
+- ICU length of stay days (mean, SD, median, IQR) - among those with ICU admission
+- Hospital length of stay days (mean, SD, median, IQR)
 - Inpatient mortality (n, %)
-
-## Execution Guide
-
-### Step 1: Generate Empyema Cohort
-
-This step identifies eligible hospitalizations, applies inclusion/exclusion criteria, and stratifies patients into treatment cohorts.
-
-**Mac/Linux (with logging)**:
-
-``` bash
-mkdir -p logs
-uv run marimo run code/01_cohort.py 2>&1 | tee logs/01_cohort_output.log
-```
-
-**Windows PowerShell (with logging)**:
-
-``` powershell
-New-Item -ItemType Directory -Force -Path logs
-uv run marimo run code/01_cohort.py 2>&1 | Tee-Object -FilePath logs/01_cohort_output.log
-```
-
-**Troubleshooting**: If you encounter errors, run in edit mode to see cell-level execution:
-
-``` bash
-uv run marimo edit code/01_cohort.py
-```
-
-### Step 2: Calculate DOT and Generate Table 1
-
-This step computes DOT per 1000 PD for each antibiotic, calculates all clinical features, and generates Table 1 summary statistics.
-
-**Mac/Linux (with logging)**:
-
-``` bash
-uv run marimo run code/02_DOT.py 2>&1 | tee logs/02_DOT_output.log
-```
-
-**Windows PowerShell (with logging)**:
-
-``` powershell
-uv run marimo run code/02_DOT.py 2>&1 | Tee-Object -FilePath logs/02_DOT_output.log
-```
-
-**Troubleshooting**:
-
-``` bash
-uv run marimo edit code/02_DOT.py
-```
 
 ## Output Files
 
@@ -380,43 +373,34 @@ uv run marimo edit code/02_DOT.py
 
 These files contain patient-level data and should **NOT** be shared outside your institution:
 
-- `cohort_empyema.parquet` - Complete cohort with all features, SOFA scores, and cohort assignments
-- `dot_hospital_level.parquet` - DOT per antibiotic per hospitalization (wide format)
-- `microbiology_cultures_pleural.parquet` - Pleural culture results per hospitalization
-- `clinical_features_patient_level.parquet` - All computed clinical features per hospitalization
+- `cohort_empyema_initial.parquet` - Initial cohort after applying inclusion/exclusion criteria
+- `cohort_filtering_stats.json` - Statistics showing filtering steps and counts
+- `cohort_empyema_with_features.parquet` - Complete cohort with all clinical features and treatment group assignments
 
-### RESULTS_UPLOAD_ME/ (Safe to Share - Summary Statistics)
+### upload_to_box/ (Safe to Share - Summary Statistics)
 
 These files contain only aggregate summary statistics and are **safe to share** for multi-site comparison:
 
-- `table1_summary.json` - Complete Table 1 in JSON format (machine-readable)
-- `table1_summary.csv` - Complete Table 1 in CSV format (human-readable)
-- `cohort_summary.csv` - Summary statistics by treatment cohort
-- `dot_by_cohort.csv` - DOT per 1000 PD by antibiotic and cohort
-- `organism_distribution.csv` - Top organisms by cohort
-- `outcomes_by_cohort.csv` - Outcomes stratified by treatment approach
-- `statistical_comparisons.csv` - P-values for between-cohort comparisons
+- `table1_descriptive_stats.csv` - Table 1 descriptive statistics stratified by treatment group (CSV format)
+- `table1_statistics_by_treatment.json` - Table 1 statistics in JSON format (machine-readable)
+- `organisms_by_treatment_group.csv` - Organism counts stratified by treatment group
 
 ## Data Sharing Instructions
 
 ### After Successful Pipeline Completion
 
-Once both scripts (`01_cohort.py` and `02_DOT.py`) have completed successfully and all output files are generated in `RESULTS_UPLOAD_ME/`, contact the coordinating site to obtain the BOX folder link for uploading your results.
+Once both scripts (`01_cohort.py` and `02_table1.py`) have completed successfully and all output files are generated in `upload_to_box/`, contact the coordinating site to obtain the BOX folder link for uploading your results.
 
 **Contact**: [Contact information to be provided]
 
 ### What to Upload
 
-**IMPORTANT**: Upload **ONLY** files from the `RESULTS_UPLOAD_ME/` folder. **DO NOT** upload files from `PHI_DATA/` folder as they contain patient-level data.
+**IMPORTANT**: Upload **ONLY** files from the `upload_to_box/` folder. **DO NOT** upload files from `PHI_DATA/` folder as they contain patient-level data.
 
 **Upload Checklist**:
-- [ ] `table1_summary.json`
-- [ ] `table1_summary.csv`
-- [ ] `cohort_summary.csv`
-- [ ] `dot_by_cohort.csv`
-- [ ] `organism_distribution.csv`
-- [ ] `outcomes_by_cohort.csv`
-- [ ] `statistical_comparisons.csv`
+- [ ] `table1_descriptive_stats.csv`
+- [ ] `table1_statistics_by_treatment.json`
+- [ ] `organisms_by_treatment_group.csv`
 
 ## Important Notes
 
@@ -443,7 +427,7 @@ The 5-day antibiotic treatment requirement begins at the **order_dttm** of the p
 
 ### Multi-Site Comparisons
 
-This project is designed for multi-site collaboration. Summary statistics from `RESULTS_UPLOAD_ME/` will be aggregated across sites to:
+This project is designed for multi-site collaboration. Summary statistics from `upload_to_box/` will be aggregated across sites to:
 - Characterize practice variation in empyema management
 - Compare outcomes across treatment strategies
 - Identify factors associated with treatment selection
