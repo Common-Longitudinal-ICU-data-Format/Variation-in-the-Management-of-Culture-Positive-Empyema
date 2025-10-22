@@ -1255,28 +1255,18 @@ def _(cohort_stratified, pd, site_name):
 
 @app.cell
 def _():
-    # Helper function to suppress counts < 5
+    # Helper functions for formatting statistics
     def suppress_count(count):
-        """Suppress counts < 5 for privacy protection.
-        Returns '<5' if count < 5, otherwise returns count as string.
-        """
-        if count < 5:
-            return '<5'
-        else:
-            return str(int(count))
+        """Return count as string."""
+        return str(int(count))
 
     def format_count_pct(count, total):
-        """Format count with percentage, applying suppression to count only."""
-        count_str = suppress_count(count)
-        if count_str == '<5':
-            # Still calculate percentage but show count as <5
-            pct = (count / total * 100) if total > 0 else 0
-            return f"<5 ({pct:.1f}%)"
-        else:
-            pct = (count / total * 100) if total > 0 else 0
-            return f"{count_str} ({pct:.1f}%)"
+        """Format count with percentage."""
+        count_str = str(int(count))
+        pct = (count / total * 100) if total > 0 else 0
+        return f"{count_str} ({pct:.1f}%)"
 
-    print("✓ Suppression helper functions created")
+    print("✓ Formatting helper functions created")
     return format_count_pct, suppress_count
 
 
