@@ -96,6 +96,12 @@ def _(Hospitalization, pd):
     hosp_df['admission_dttm'] = pd.to_datetime(hosp_df['admission_dttm'])
     hosp_df['discharge_dttm'] = pd.to_datetime(hosp_df['discharge_dttm'])
 
+    # Check for null datetime values
+    null_admission = hosp_df['admission_dttm'].isna().sum()
+    null_discharge = hosp_df['discharge_dttm'].isna().sum()
+    hosp_df = hosp_df[hosp_df['admission_dttm'].notna() & hosp_df['discharge_dttm'].notna()].copy()
+    print(f"\nNull datetime check - Hospitalization: {null_admission:,} records with null admission_dttm, {null_discharge:,} records with null discharge_dttm removed")
+
     # Apply filters
     print("\nApplying hospitalization filters...")
     print(f"  Initial records: {len(hosp_df):,}")
@@ -154,6 +160,12 @@ def _(MicrobiologyCulture, hosp_filtered):
     print(f"  Before filter: {len(micro_df):,} records")
     micro_df = micro_df[micro_df['hospitalization_id'].isin(eligible_hosp_ids)].copy()
     print(f"  After filter: {len(micro_df):,} records")
+
+    # Check for null datetime values in order_dttm
+    print(f"\nNull datetime check - Microbiology...")
+    null_order_dttm = micro_df['order_dttm'].isna().sum()
+    micro_df = micro_df[micro_df['order_dttm'].notna()].copy()
+    print(f"  Microbiology: {null_order_dttm:,} records with null order_dttm removed")
 
     # Filter to pleural fluid only
     print("\nApplying pleural fluid filter...")
@@ -293,6 +305,13 @@ def _(MedicationAdminIntermittent, cohort_with_cultures):
 
     meds_df = meds_table.df[meds_table.df['med_group'] == 'CMS_sepsis_qualifying_antibiotics'].copy()
     print(f"OK CMS sepsis-qualifying antibiotics loaded: {len(meds_df):,} records")
+
+    # Check for null datetime values in admin_dttm
+    print(f"\nNull datetime check - Medications...")
+    null_admin_dttm = meds_df['admin_dttm'].isna().sum()
+    meds_df = meds_df[meds_df['admin_dttm'].notna()].copy()
+    print(f"  Medications: {null_admin_dttm:,} records with null admin_dttm removed")
+
     return cohort_hosp_ids, meds_df
 
 
@@ -374,18 +393,32 @@ def _(abx_5day_window, pd):
         pattern_dict['order_dttm'] = order_dt
         patterns_list.append(pattern_dict)
 
-    abx_pattern = pd.DataFrame(patterns_list)
+    # Handle empty results gracefully
+    if len(patterns_list) == 0:
+        # Create empty DataFrame with expected column schema
+        abx_pattern = pd.DataFrame(columns=[
+            'hospitalization_id', 'order_dttm',
+            'day_1_abx', 'day_2_abx', 'day_3_abx', 'day_4_abx', 'day_5_abx',
+            'all_5_days_abx', 'abx_free_days'
+        ])
+        print(f"\nWARNING: No culture orders found with antibiotics in 5-day window!")
+        print(f"  This suggests an upstream data issue - check previous filtering steps.")
+    else:
+        abx_pattern = pd.DataFrame(patterns_list)
 
     print(f"\nOK Pattern calculated for {len(abx_pattern):,} culture orders")
-    print(f"  All 5 days covered: {(abx_pattern['all_5_days_abx'] == 1).sum():,} ({(abx_pattern['all_5_days_abx'] == 1).sum()/len(abx_pattern)*100:.1f}%)")
-    print(f"  Missing 1+ days: {(abx_pattern['all_5_days_abx'] == 0).sum():,} ({(abx_pattern['all_5_days_abx'] == 0).sum()/len(abx_pattern)*100:.1f}%)")
 
-    # Show distribution of antibiotic-free days
-    print(f"\n  Antibiotic-free days distribution:")
-    for _free_days in sorted(abx_pattern['abx_free_days'].unique()):
-        _count = (abx_pattern['abx_free_days'] == _free_days).sum()
-        _pct = _count / len(abx_pattern) * 100
-        print(f"    {_free_days} days free: {_count:,} ({_pct:.1f}%)")
+    # Only print statistics if we have data
+    if len(abx_pattern) > 0:
+        print(f"  All 5 days covered: {(abx_pattern['all_5_days_abx'] == 1).sum():,} ({(abx_pattern['all_5_days_abx'] == 1).sum()/len(abx_pattern)*100:.1f}%)")
+        print(f"  Missing 1+ days: {(abx_pattern['all_5_days_abx'] == 0).sum():,} ({(abx_pattern['all_5_days_abx'] == 0).sum()/len(abx_pattern)*100:.1f}%)")
+
+        # Show distribution of antibiotic-free days
+        print(f"\n  Antibiotic-free days distribution:")
+        for _free_days in sorted(abx_pattern['abx_free_days'].unique()):
+            _count = (abx_pattern['abx_free_days'] == _free_days).sum()
+            _pct = _count / len(abx_pattern) * 100
+            print(f"    {_free_days} days free: {_count:,} ({_pct:.1f}%)")
     return (abx_pattern,)
 
 
@@ -417,6 +450,13 @@ def _(MedicationAdminIntermittent, cohort_hosp_ids):
     print(f"OK Intrapleural lytics loaded: {len(intrapleural_df):,} records")
     print(f"  Alteplase: {(intrapleural_df['med_category'] == 'alteplase').sum():,}")
     print(f"  Dornase alfa: {(intrapleural_df['med_category'] == 'dornase_alfa').sum():,}")
+
+    # Check for null datetime values in admin_dttm
+    print(f"\nNull datetime check - Intrapleural medications...")
+    null_intrapleural_admin = intrapleural_df['admin_dttm'].isna().sum()
+    intrapleural_df = intrapleural_df[intrapleural_df['admin_dttm'].notna()].copy()
+    print(f"  Intrapleural: {null_intrapleural_admin:,} records with null admin_dttm removed")
+
     return (intrapleural_df,)
 
 
@@ -514,6 +554,13 @@ def _(PatientProcedures, cohort_hosp_ids):
             _code_count = (proc_df['procedure_code'] == _code).sum()
             if _code_count > 0:
                 print(f"    {_code}: {_code_count:,}")
+
+    # Check for null datetime values in procedure_billed_dttm
+    print(f"\nNull datetime check - Procedures...")
+    null_procedure_dttm = proc_df['procedure_billed_dttm'].isna().sum()
+    proc_df = proc_df[proc_df['procedure_billed_dttm'].notna()].copy()
+    print(f"  Procedures: {null_procedure_dttm:,} records with null procedure_billed_dttm removed")
+
     return (proc_df,)
 
 
