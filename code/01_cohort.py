@@ -365,9 +365,16 @@ def _(abx_5day_window, pd):
 
         return pd.Series(result)
 
-    # Use tqdm for progress tracking
-    tqdm.pandas(desc="Processing culture orders")
-    abx_pattern = abx_5day_window.groupby(['hospitalization_id', 'order_dttm']).progress_apply(calculate_5day_pattern).reset_index()
+    # Use tqdm for progress tracking - manual loop to avoid reset_index conflicts
+    patterns_list = []
+    for (hosp_id, order_dt), group in tqdm(abx_5day_window.groupby(['hospitalization_id', 'order_dttm']), desc="Processing culture orders"):
+        pattern_series = calculate_5day_pattern(group)
+        pattern_dict = pattern_series.to_dict()
+        pattern_dict['hospitalization_id'] = hosp_id
+        pattern_dict['order_dttm'] = order_dt
+        patterns_list.append(pattern_dict)
+
+    abx_pattern = pd.DataFrame(patterns_list)
 
     print(f"\nOK Pattern calculated for {len(abx_pattern):,} culture orders")
     print(f"  All 5 days covered: {(abx_pattern['all_5_days_abx'] == 1).sum():,} ({(abx_pattern['all_5_days_abx'] == 1).sum()/len(abx_pattern)*100:.1f}%)")

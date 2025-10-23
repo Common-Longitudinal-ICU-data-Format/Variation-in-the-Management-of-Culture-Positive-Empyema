@@ -119,7 +119,7 @@ uv run marimo edit code/02_table1.py
 | **microbiology_culture** | hospitalization_id, order_dttm, collection_dttm, organism_category, fluid_category | fluid_category = 'pleural', organism_category != 'no growth' |
 | **patient** | patient_id, sex_category, ethnicity_category, race_category, death_dttm | - |
 | **respiratory_support** | hospitalization_id, recorded_dttm, device_category, fio2_set | NIPPV, High Flow NC, etc. |
-| **patient_procedures** | hospitalization_id, procedure_dttm, icd10_code, cpt_code | Thoracoscopy and decortication procedures |
+| **patient_procedures** | hospitalization_id, procedure_dttm, icd10_code, cpt_code | CPT Codes: 32651 (Thoracoscopy with partial pulmonary decortication), 32652 (Thoracoscopy with total pulmonary decortication), 32225 (Decortication partial), 32220 (Decortication total), 32320 (Decortication and parietal pleurectomy) |
 
 ## Study Population
 
