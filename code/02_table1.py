@@ -48,9 +48,9 @@ def _(mo):
     - fluconazole, micafungin, voriconazole, posaconazole, itraconazole
 
     **Time Windows:**
-    - Vitals, Labs, SOFA: Entire stay window (1st order_dttm → discharge_dttm)
+    - Vitals, Labs, SOFA: Entire stay window (1st order_dttm -> discharge_dttm)
     - Medications (vasopressors, antibiotics, antifungals): ICU locations only after order_dttm
-    - Respiratory support: Entire stay window (1st order_dttm → discharge_dttm)
+    - Respiratory support: Entire stay window (1st order_dttm -> discharge_dttm)
     """
     )
     return
@@ -109,7 +109,7 @@ def _(Path, pd):
     cohort_path = Path('PHI_DATA') / 'cohort_empyema_initial.parquet'
     cohort_base = pd.read_parquet(cohort_path)
 
-    print(f"✓ Cohort loaded: {len(cohort_base):,} hospitalizations")
+    print(f"OK Cohort loaded: {len(cohort_base):,} hospitalizations")
     print(f"  Columns: {list(cohort_base.columns)}")
     return (cohort_base,)
 
@@ -136,7 +136,7 @@ def _(Adt, cohort_base):
     )
 
     adt_df = adt_table.df.copy()
-    print(f"✓ ADT data loaded: {len(adt_df):,} records")
+    print(f"OK ADT data loaded: {len(adt_df):,} records")
     return (adt_df,)
 
 
@@ -165,7 +165,7 @@ def _(adt_df, pd):
     }).reset_index()
     icu_los_summary.columns = ['hospitalization_id', 'icu_los_days']
 
-    print(f"✓ ICU LOS calculated for {len(icu_los_summary):,} hospitalizations")
+    print(f"OK ICU LOS calculated for {len(icu_los_summary):,} hospitalizations")
     print(f"  Mean ICU LOS: {icu_los_summary['icu_los_days'].mean():.2f} days")
     print(f"  Median ICU LOS: {icu_los_summary['icu_los_days'].median():.2f} days")
     return icu_adt, icu_los_summary
@@ -186,7 +186,7 @@ def _(cohort_base, icu_los_summary, pd):
     # Fill NaN (no ICU stay found) with 0
     cohort_with_icu_los['icu_los_days'] = cohort_with_icu_los['icu_los_days'].fillna(0)
 
-    print(f"✓ ICU LOS merged: {len(cohort_with_icu_los):,} hospitalizations")
+    print(f"OK ICU LOS merged: {len(cohort_with_icu_los):,} hospitalizations")
     print(f"  With ICU stay: {(cohort_with_icu_los['icu_los_days'] > 0).sum():,}")
     print(f"  Without ICU stay: {(cohort_with_icu_los['icu_los_days'] == 0).sum():,}")
     return (cohort_with_icu_los,)
@@ -231,7 +231,7 @@ def _(pd):
 
         return med_icu_only
 
-    print("\n✓ ICU medication filter function created")
+    print("\nOK ICU medication filter function created")
     return (filter_meds_to_icu_only,)
 
 
@@ -249,7 +249,7 @@ def _(Patient, cohort_with_icu_los, pd):
     patient_table = Patient.from_file(config_path='clif_config.json')
     patient_df = patient_table.df.copy()
 
-    print(f"✓ Patient data loaded: {len(patient_df):,} records")
+    print(f"OK Patient data loaded: {len(patient_df):,} records")
 
     # Merge demographics
     cohort_with_demo = pd.merge(
@@ -291,7 +291,7 @@ def _(Patient, cohort_with_icu_los, pd):
 
     cohort_with_demo['race_ethnicity'] = cohort_with_demo.apply(categorize_race_ethnicity, axis=1)
 
-    print(f"✓ Demographics added")
+    print(f"OK Demographics added")
     print(f"\nRace/Ethnicity distribution:")
     print(cohort_with_demo['race_ethnicity'].value_counts())
     return (cohort_with_demo,)
@@ -319,7 +319,7 @@ def _(HospitalDiagnosis, cohort_with_demo):
         columns=['hospitalization_id', 'diagnosis_code', 'diagnosis_code_format']
     )
 
-    print(f"✓ Hospital diagnosis data loaded: {len(hosp_dx_table.df):,} records")
+    print(f"OK Hospital diagnosis data loaded: {len(hosp_dx_table.df):,} records")
     print(f"  Unique hospitalizations: {hosp_dx_table.df['hospitalization_id'].nunique():,}")
     print(f"  ICD10CM codes: {(hosp_dx_table.df['diagnosis_code_format'] == 'ICD10CM').sum():,}")
     return (hosp_dx_table,)
@@ -332,7 +332,7 @@ def _(calculate_elix, hosp_dx_table):
 
     elix_results = calculate_elix(hosp_dx_table, hierarchy=True)
 
-    print(f"\n✓ Elixhauser scores calculated: {len(elix_results):,} hospitalizations")
+    print(f"\nOK Elixhauser scores calculated: {len(elix_results):,} hospitalizations")
     print(f"  Mean Elixhauser score: {elix_results['elix_score'].mean():.2f}")
     print(f"  Median Elixhauser score: {elix_results['elix_score'].median():.2f}")
     print(f"  Range: {elix_results['elix_score'].min():.0f} to {elix_results['elix_score'].max():.0f}")
@@ -346,7 +346,7 @@ def _(calculate_cci, hosp_dx_table):
 
     cci_results = calculate_cci(hosp_dx_table, hierarchy=True)
 
-    print(f"\n✓ CCI scores calculated: {len(cci_results):,} hospitalizations")
+    print(f"\nOK CCI scores calculated: {len(cci_results):,} hospitalizations")
     print(f"  Mean CCI score: {cci_results['cci_score'].mean():.2f}")
     print(f"  Median CCI score: {cci_results['cci_score'].median():.2f}")
     print(f"  Range: {cci_results['cci_score'].min():.0f} to {cci_results['cci_score'].max():.0f}")
@@ -408,7 +408,7 @@ def _(cci_results, cohort_with_demo, elix_results, pd):
         cohort_with_comorbidity['chronic_pulmonary_disease'] = 0
         print("  Warning: No chronic pulmonary disease column found in comorbidity results")
 
-    print(f"✓ Comorbidity scores merged: {len(cohort_with_comorbidity):,} hospitalizations")
+    print(f"OK Comorbidity scores merged: {len(cohort_with_comorbidity):,} hospitalizations")
     print(f"  Elixhauser available: {cohort_with_comorbidity['elix_score'].notna().sum():,}")
     print(f"  CCI available: {cohort_with_comorbidity['cci_score'].notna().sum():,}")
     print(f"  Chronic pulmonary disease: {(cohort_with_comorbidity['chronic_pulmonary_disease'] == 1).sum():,} ({(cohort_with_comorbidity['chronic_pulmonary_disease'] == 1).mean()*100:.1f}%)")
@@ -438,10 +438,10 @@ def _(cohort_with_comorbidity):
         lambda x: 1 if any(term in x for term in ['expired', 'dead', 'death', 'deceased']) else 0
     )
 
-    print(f"✓ Hospital LOS calculated")
+    print(f"OK Hospital LOS calculated")
     print(f"  Mean LOS: {cohort_with_outcomes['hospital_los_days'].mean():.2f} days")
     print(f"  Median LOS: {cohort_with_outcomes['hospital_los_days'].median():.2f} days")
-    print(f"\n✓ Inpatient mortality calculated")
+    print(f"\nOK Inpatient mortality calculated")
     print(f"  Deaths: {cohort_with_outcomes['inpatient_mortality'].sum():,} ({cohort_with_outcomes['inpatient_mortality'].mean()*100:.2f}%)")
     return (cohort_with_outcomes,)
 
@@ -469,12 +469,12 @@ def _(Vitals, apply_outlier_handling, cohort_with_outcomes):
         columns=['hospitalization_id', 'recorded_dttm', 'vital_category', 'vital_value']
     )
 
-    print(f"✓ Vitals loaded: {len(vitals_table.df):,} records")
+    print(f"OK Vitals loaded: {len(vitals_table.df):,} records")
 
     # Apply outlier handling
     print("Applying outlier handling...")
     apply_outlier_handling(vitals_table)
-    print(f"✓ Outlier handling applied: {len(vitals_table.df):,} records")
+    print(f"OK Outlier handling applied: {len(vitals_table.df):,} records")
 
     vitals_df = vitals_table.df.copy()
     return (vitals_df,)
@@ -483,7 +483,7 @@ def _(Vitals, apply_outlier_handling, cohort_with_outcomes):
 @app.cell
 def _(cohort_with_outcomes, pd, vitals_df):
     # Filter vitals to stay window and calculate aggregates
-    print("\nFiltering vitals to stay window (1st order → discharge)...")
+    print("\nFiltering vitals to stay window (1st order -> discharge)...")
 
     # Merge with cohort to get stay windows
     vitals_with_window = pd.merge(
@@ -499,7 +499,7 @@ def _(cohort_with_outcomes, pd, vitals_df):
         (vitals_with_window['recorded_dttm'] <= vitals_with_window['discharge_dttm'])
     ].copy()
 
-    print(f"✓ Vitals filtered to stay window: {len(vitals_stay):,} records")
+    print(f"OK Vitals filtered to stay window: {len(vitals_stay):,} records")
 
     # Separate temp/MAP from height/weight
     vitals_temp_map = vitals_stay[vitals_stay['vital_category'].isin(['temp_c', 'map'])].copy()
@@ -525,7 +525,7 @@ def _(cohort_with_outcomes, pd, vitals_df):
     }
     vitals_agg = vitals_agg.rename(columns={k: v for k, v in vitals_rename.items() if k in vitals_agg.columns})
 
-    print(f"✓ Vital aggregates calculated for {len(vitals_agg):,} hospitalizations")
+    print(f"OK Vital aggregates calculated for {len(vitals_agg):,} hospitalizations")
 
     # Calculate BMI from first recorded height/weight
     print("\nCalculating BMI from first recorded values...")
@@ -545,7 +545,7 @@ def _(cohort_with_outcomes, pd, vitals_df):
         axis=1
     )
 
-    print(f"✓ BMI calculated for {bmi_df['bmi'].notna().sum():,} hospitalizations")
+    print(f"OK BMI calculated for {bmi_df['bmi'].notna().sum():,} hospitalizations")
 
     # Merge vitals and BMI
     vitals_complete = pd.merge(vitals_agg, bmi_df[['hospitalization_id', 'bmi']], on='hospitalization_id', how='outer')
@@ -564,7 +564,7 @@ def _(cohort_with_outcomes, pd, vitals_complete):
         how='left'
     )
 
-    print(f"✓ Vitals merged: {len(cohort_with_vitals):,} hospitalizations")
+    print(f"OK Vitals merged: {len(cohort_with_vitals):,} hospitalizations")
     return (cohort_with_vitals,)
 
 
@@ -596,7 +596,7 @@ def _(MedicationAdminContinuous, cohort_with_vitals):
     )
 
     vaso_df = vaso_table.df.copy()
-    print(f"✓ Vasopressor data loaded: {len(vaso_df):,} records")
+    print(f"OK Vasopressor data loaded: {len(vaso_df):,} records")
     return (vaso_df,)
 
 
@@ -627,7 +627,7 @@ def _(cohort_with_vitals, filter_meds_to_icu_only, icu_adt, pd, vaso_df):
     vaso_summary.columns = ['hospitalization_id', 'vaso_count']
     vaso_summary['vasopressor_ever'] = 1
 
-    print(f"✓ ICU vasopressor flag created for {len(vaso_summary):,} hospitalizations")
+    print(f"OK ICU vasopressor flag created for {len(vaso_summary):,} hospitalizations")
     return (vaso_summary,)
 
 
@@ -643,7 +643,7 @@ def _(cohort_with_vitals, pd, vaso_summary):
 
     cohort_with_vaso['vasopressor_ever'] = cohort_with_vaso['vasopressor_ever'].fillna(0).astype(int)
 
-    print(f"\n✓ ICU vasopressor flag merged")
+    print(f"\nOK ICU vasopressor flag merged")
     print(f"  With ICU vasopressors: {(cohort_with_vaso['vasopressor_ever'] == 1).sum():,} ({(cohort_with_vaso['vasopressor_ever'] == 1).mean()*100:.1f}%)")
     return (cohort_with_vaso,)
 
@@ -670,7 +670,7 @@ def _(RespiratorySupport, cohort_with_vaso):
     )
 
     resp_df = resp_table.df.copy()
-    print(f"✓ Respiratory support loaded: {len(resp_df):,} records")
+    print(f"OK Respiratory support loaded: {len(resp_df):,} records")
     return (resp_df,)
 
 
@@ -691,7 +691,7 @@ def _(cohort_with_vaso, pd, resp_df):
         (resp_with_window['recorded_dttm'] <= resp_with_window['discharge_dttm'])
     ].copy()
 
-    print(f"✓ Respiratory support filtered to stay: {len(resp_stay):,} records")
+    print(f"OK Respiratory support filtered to stay: {len(resp_stay):,} records")
 
     # Normalize device categories
     resp_stay['device_category_lower'] = resp_stay['device_category'].str.lower()
@@ -703,7 +703,7 @@ def _(cohort_with_vaso, pd, resp_df):
         IMV_ever=('device_category_lower', lambda x: 1 if any('imv' in str(d) for d in x) else 0)
     ).reset_index()
 
-    print(f"✓ Respiratory support flags created for {len(resp_summary):,} hospitalizations")
+    print(f"OK Respiratory support flags created for {len(resp_summary):,} hospitalizations")
     return (resp_summary,)
 
 
@@ -721,7 +721,7 @@ def _(cohort_with_vaso, pd, resp_summary):
     cohort_with_resp['HFNO_ever'] = cohort_with_resp['HFNO_ever'].fillna(0).astype(int)
     cohort_with_resp['IMV_ever'] = cohort_with_resp['IMV_ever'].fillna(0).astype(int)
 
-    print(f"\n✓ Respiratory support flags merged")
+    print(f"\nOK Respiratory support flags merged")
     print(f"  NIPPV: {(cohort_with_resp['NIPPV_ever'] == 1).sum():,} ({(cohort_with_resp['NIPPV_ever'] == 1).mean()*100:.1f}%)")
     print(f"  HFNO: {(cohort_with_resp['HFNO_ever'] == 1).sum():,} ({(cohort_with_resp['HFNO_ever'] == 1).mean()*100:.1f}%)")
     print(f"  IMV: {(cohort_with_resp['IMV_ever'] == 1).sum():,} ({(cohort_with_resp['IMV_ever'] == 1).mean()*100:.1f}%)")
@@ -759,8 +759,8 @@ def _(ClifOrchestrator, cohort_with_resp, pd):
 
     sofa_hosp_ids = sofa_cohort_df['hospitalization_id'].astype(str).unique().tolist()
 
-    print(f"✓ ClifOrchestrator initialized")
-    print(f"✓ SOFA cohort prepared: {len(sofa_cohort_df):,} hospitalizations")
+    print(f"OK ClifOrchestrator initialized")
+    print(f"OK SOFA cohort prepared: {len(sofa_cohort_df):,} hospitalizations")
     return co_sofa, sofa_cohort_df, sofa_hosp_ids
 
 
@@ -778,7 +778,7 @@ def _(co_sofa, sofa_hosp_ids):
         },
         columns=['hospitalization_id', 'lab_result_dttm', 'lab_category', 'lab_value_numeric']
     )
-    print(f"  ✓ Labs loaded: {len(co_sofa.labs.df):,} records")
+    print(f"  OK Labs loaded: {len(co_sofa.labs.df):,} records")
 
     # Load vitals
     co_sofa.load_table(
@@ -789,7 +789,7 @@ def _(co_sofa, sofa_hosp_ids):
         },
         columns=['hospitalization_id', 'recorded_dttm', 'vital_category', 'vital_value']
     )
-    print(f"  ✓ Vitals loaded: {len(co_sofa.vitals.df):,} records")
+    print(f"  OK Vitals loaded: {len(co_sofa.vitals.df):,} records")
 
     # Load patient assessments
     co_sofa.load_table(
@@ -800,7 +800,7 @@ def _(co_sofa, sofa_hosp_ids):
         },
         columns=['hospitalization_id', 'recorded_dttm', 'assessment_category', 'numerical_value']
     )
-    print(f"  ✓ Patient assessments loaded: {len(co_sofa.patient_assessments.df):,} records")
+    print(f"  OK Patient assessments loaded: {len(co_sofa.patient_assessments.df):,} records")
 
     # Load medication_admin_continuous
     co_sofa.load_table(
@@ -810,7 +810,7 @@ def _(co_sofa, sofa_hosp_ids):
             'med_category': ['norepinephrine', 'epinephrine', 'dopamine', 'dobutamine']
         }
     )
-    print(f"  ✓ Medications loaded: {len(co_sofa.medication_admin_continuous.df):,} records")
+    print(f"  OK Medications loaded: {len(co_sofa.medication_admin_continuous.df):,} records")
 
     # Load respiratory support
     co_sofa.load_table(
@@ -820,9 +820,9 @@ def _(co_sofa, sofa_hosp_ids):
         },
         columns=['hospitalization_id', 'recorded_dttm', 'device_category', 'fio2_set']
     )
-    print(f"  ✓ Respiratory support loaded: {len(co_sofa.respiratory_support.df):,} records")
+    print(f"  OK Respiratory support loaded: {len(co_sofa.respiratory_support.df):,} records")
 
-    print("✓ All SOFA tables loaded")
+    print("OK All SOFA tables loaded")
     return
 
 
@@ -842,7 +842,7 @@ def _(co_sofa):
     # Update the table
     co_sofa.medication_admin_continuous.df = med_df
 
-    print(f"✓ Removed null doses: {initial_count:,} → {len(med_df):,} records")
+    print(f"OK Removed null doses: {initial_count:,} -> {len(med_df):,} records")
     return
 
 
@@ -861,7 +861,7 @@ def _(co_sofa):
         override=True
     )
 
-    print("✓ Medication units converted")
+    print("OK Medication units converted")
     return
 
 
@@ -880,7 +880,7 @@ def _(co_sofa):
     co_sofa.medication_admin_continuous.df_converted = med_df_success
 
     conversion_removed_count = converted_initial_count - len(med_df_success)
-    print(f"✓ Filtered to successful conversions: {converted_initial_count:,} → {len(med_df_success):,} records")
+    print(f"OK Filtered to successful conversions: {converted_initial_count:,} -> {len(med_df_success):,} records")
     print(f"  Removed {conversion_removed_count:,} failed conversions ({conversion_removed_count/converted_initial_count*100:.1f}%)")
     return
 
@@ -899,7 +899,7 @@ def _(co_sofa, sofa_cohort_df):
         return_dataframe=True
     )
 
-    print(f"✓ Wide dataset created: {co_sofa.wide_df.shape}")
+    print(f"OK Wide dataset created: {co_sofa.wide_df.shape}")
     return
 
 
@@ -921,9 +921,9 @@ def _(co_sofa):
         for col_m in missing_cols:
             co_sofa.wide_df[col_m] = None
             print(f"  Added missing column: {col_m}")
-        print(f"✓ Added {len(missing_cols)} missing medication columns")
+        print(f"OK Added {len(missing_cols)} missing medication columns")
     else:
-        print("✓ All medication columns present")
+        print("OK All medication columns present")
     return
 
 
@@ -940,7 +940,7 @@ def _(co_sofa):
         create_new_wide_df=False
     )
 
-    print(f"✓ SOFA scores computed: {sofa_scores.shape}")
+    print(f"OK SOFA scores computed: {sofa_scores.shape}")
     print(f"  Mean SOFA: {sofa_scores['sofa_total'].mean():.2f}")
     print(f"  Median SOFA: {sofa_scores['sofa_total'].median():.2f}")
     return (sofa_scores,)
@@ -958,7 +958,7 @@ def _(cohort_with_resp, pd, sofa_scores):
         how='left'
     )
 
-    print(f"✓ SOFA merged: {len(cohort_with_sofa):,} hospitalizations")
+    print(f"OK SOFA merged: {len(cohort_with_sofa):,} hospitalizations")
     if 'sofa_total' in cohort_with_sofa.columns:
         print(f"  Mean SOFA: {cohort_with_sofa['sofa_total'].mean():.2f}")
         print(f"  Median SOFA: {cohort_with_sofa['sofa_total'].median():.2f}")
@@ -989,12 +989,12 @@ def _(Labs, apply_outlier_handling, cohort_with_sofa):
         columns=['hospitalization_id', 'lab_result_dttm', 'lab_category', 'lab_value_numeric']
     )
 
-    print(f"✓ Labs loaded: {len(labs_table.df):,} records")
+    print(f"OK Labs loaded: {len(labs_table.df):,} records")
 
     # Apply outlier handling
     print("Applying outlier handling to labs...")
     apply_outlier_handling(labs_table)
-    print(f"✓ Outlier handling applied: {len(labs_table.df):,} records")
+    print(f"OK Outlier handling applied: {len(labs_table.df):,} records")
 
     labs_df = labs_table.df.copy()
     return (labs_df,)
@@ -1022,7 +1022,7 @@ def _(cohort_with_sofa, labs_df, pd):
         labs_with_order['lab_result_dttm'] < labs_with_order['order_dttm']
     ].copy()
 
-    print(f"✓ Labs before culture: {len(labs_before_culture):,} records")
+    print(f"OK Labs before culture: {len(labs_before_culture):,} records")
 
     # Calculate highest values per hospitalization
     print("Calculating highest lab values before culture...")
@@ -1042,7 +1042,7 @@ def _(cohort_with_sofa, labs_df, pd):
     labs_existing_mappings = {k: v for k, v in labs_column_mapping.items() if k in labs_pivot.columns}
     labs_pivot = labs_pivot.rename(columns=labs_existing_mappings)
 
-    print(f"✓ Lab aggregates calculated for {len(labs_pivot):,} hospitalizations")
+    print(f"OK Lab aggregates calculated for {len(labs_pivot):,} hospitalizations")
     return (labs_pivot,)
 
 
@@ -1058,7 +1058,7 @@ def _(cohort_with_sofa, labs_pivot, pd):
         how='left'
     )
 
-    print(f"✓ Labs before culture merged: {len(cohort_with_labs_before):,} hospitalizations")
+    print(f"OK Labs before culture merged: {len(cohort_with_labs_before):,} hospitalizations")
     if 'highest_wbc_before_culture' in cohort_with_labs_before.columns:
         print(f"  WBC available: {cohort_with_labs_before['highest_wbc_before_culture'].notna().sum():,}")
         print(f"  Mean WBC: {cohort_with_labs_before['highest_wbc_before_culture'].mean():.2f}")
@@ -1102,7 +1102,7 @@ def _(MedicationAdminIntermittent, cohort_with_labs_before):
     )
 
     abx_df = abx_table.df.copy()
-    print(f"✓ Antibiotic data loaded: {len(abx_df):,} records")
+    print(f"OK Antibiotic data loaded: {len(abx_df):,} records")
     print(f"  Unique antibiotics: {abx_df['med_category'].nunique()}")
     return abx_df, antibiotic_categories
 
@@ -1129,7 +1129,7 @@ def _(abx_df, cohort_with_labs_before, filter_meds_to_icu_only, icu_adt, pd):
     # Filter to ICU locations only
     abx_icu = filter_meds_to_icu_only(abx_stay, icu_adt)
 
-    print(f"✓ ICU antibiotics filtered: {len(abx_icu):,} records")
+    print(f"OK ICU antibiotics filtered: {len(abx_icu):,} records")
     return (abx_icu,)
 
 
@@ -1148,7 +1148,7 @@ def _(abx_icu, antibiotic_categories):
             'hospitalizations': set(abx_subset)
         })
 
-    print(f"✓ ICU antibiotic ever flags prepared for {len(antibiotic_categories)} antibiotics")
+    print(f"OK ICU antibiotic ever flags prepared for {len(antibiotic_categories)} antibiotics")
     return (abx_flags_list,)
 
 
@@ -1172,7 +1172,7 @@ def _(abx_flags_list, cohort_with_labs_before):
         abx_pct = abx_count / len(cohort_with_abx) * 100
         print(f"  {abx_category_name} (ICU): {abx_count:,} ({abx_pct:.1f}%)")
 
-    print(f"\n✓ All ICU antibiotic flags added")
+    print(f"\nOK All ICU antibiotic flags added")
     return (cohort_with_abx,)
 
 
@@ -1203,7 +1203,7 @@ def _(cohort_with_abx):
     cohort_stratified = cohort_with_abx.copy()
     cohort_stratified['treatment_group'] = cohort_stratified.apply(assign_treatment_group, axis=1)
 
-    print(f"\n✓ Treatment groups assigned")
+    print(f"\nOK Treatment groups assigned")
     print(f"  Antibiotics only: {(cohort_stratified['treatment_group'] == 'antibiotics_only').sum():,} ({(cohort_stratified['treatment_group'] == 'antibiotics_only').mean()*100:.1f}%)")
     print(f"  Intrapleural lytics: {(cohort_stratified['treatment_group'] == 'intrapleural_lytics').sum():,} ({(cohort_stratified['treatment_group'] == 'intrapleural_lytics').mean()*100:.1f}%)")
     print(f"  VATS cohort: {(cohort_stratified['treatment_group'] == 'vats_cohort').sum():,} ({(cohort_stratified['treatment_group'] == 'vats_cohort').mean()*100:.1f}%)")
@@ -1242,14 +1242,14 @@ def _(cohort_stratified, pd, site_name):
                 'count': count
             })
 
-        print(f"  ✓ {treatment_group}: {len(organism_counts)} unique organisms")
+        print(f"  OK {treatment_group}: {len(organism_counts)} unique organisms")
 
     organism_df = pd.DataFrame(organism_rows)
 
     # Sort by treatment_group and count (descending)
     organism_df = organism_df.sort_values(['treatment_group', 'count'], ascending=[True, False])
 
-    print(f"\n✓ Organism analysis complete: {len(organism_df)} rows")
+    print(f"\nOK Organism analysis complete: {len(organism_df)} rows")
     return (organism_df,)
 
 
@@ -1266,7 +1266,7 @@ def _():
         pct = (count / total * 100) if total > 0 else 0
         return f"{count_str} ({pct:.1f}%)"
 
-    print("✓ Formatting helper functions created")
+    print("OK Formatting helper functions created")
     return format_count_pct, suppress_count
 
 
@@ -1442,23 +1442,23 @@ def _(cohort_stratified, format_count_pct, suppress_count):
     # Antibiotics only
     abx_only = cohort_stratified[cohort_stratified['treatment_group'] == 'antibiotics_only']
     table1_stratified['antibiotics_only'] = generate_stats_for_group(abx_only, 'Antibiotics Only')
-    print(f"  ✓ Antibiotics only: {len(abx_only):,} patients")
+    print(f"  OK Antibiotics only: {len(abx_only):,} patients")
 
     # Intrapleural lytics
     lytics = cohort_stratified[cohort_stratified['treatment_group'] == 'intrapleural_lytics']
     table1_stratified['intrapleural_lytics'] = generate_stats_for_group(lytics, 'Intrapleural Lytics')
-    print(f"  ✓ Intrapleural lytics: {len(lytics):,} patients")
+    print(f"  OK Intrapleural lytics: {len(lytics):,} patients")
 
     # VATS cohort
     vats = cohort_stratified[cohort_stratified['treatment_group'] == 'vats_cohort']
     table1_stratified['vats_cohort'] = generate_stats_for_group(vats, 'VATS Cohort')
-    print(f"  ✓ VATS cohort: {len(vats):,} patients")
+    print(f"  OK VATS cohort: {len(vats):,} patients")
 
     # Total
     table1_stratified['total'] = generate_stats_for_group(cohort_stratified, 'Total')
-    print(f"  ✓ Total: {len(cohort_stratified):,} patients")
+    print(f"  OK Total: {len(cohort_stratified):,} patients")
 
-    print("✓ Stratified Table 1 statistics generated")
+    print("OK Stratified Table 1 statistics generated")
     return (table1_stratified,)
 
 
@@ -1484,19 +1484,19 @@ def _(Path, cohort_stratified, organism_df, pd, site_name, table1_stratified):
     # 1. Save row-level data to PHI_DATA
     cohort_output = phi_dir / 'cohort_empyema_with_features.parquet'
     cohort_stratified.to_parquet(cohort_output, index=False)
-    print(f"✓ Enhanced cohort saved: {cohort_output}")
+    print(f"OK Enhanced cohort saved: {cohort_output}")
     print(f"  Rows: {len(cohort_stratified):,}")
     print(f"  Columns: {len(cohort_stratified.columns)}")
 
     # 2. Save organism analysis by treatment group
-    print("\n✓ Saving organism analysis CSV...")
+    print("\nOK Saving organism analysis CSV...")
     organism_csv = upload_dir / 'organisms_by_treatment_group.csv'
     organism_df.to_csv(organism_csv, index=False)
-    print(f"✓ Organism CSV saved: {organism_csv}")
+    print(f"OK Organism CSV saved: {organism_csv}")
     print(f"  Rows: {len(organism_df):,}")
 
     # 3. Create stratified CSV with site_name column
-    print("\n✓ Creating stratified CSV output...")
+    print("\nOK Creating stratified CSV output...")
     table1_rows = []
 
     # Get all unique variable names across all groups
@@ -1518,10 +1518,10 @@ def _(Path, cohort_stratified, organism_df, pd, site_name, table1_stratified):
 
     table1_csv = upload_dir / 'table1_descriptive_stats.csv'
     pd.DataFrame(table1_rows).to_csv(table1_csv, index=False)
-    print(f"✓ Stratified CSV saved: {table1_csv}")
+    print(f"OK Stratified CSV saved: {table1_csv}")
 
     # 4. Create JSON for multi-site aggregation
-    print("\n✓ Creating JSON for multi-site aggregation...")
+    print("\nOK Creating JSON for multi-site aggregation...")
     json_output = {
         'site_name': site_name,
         'date_generated': datetime.now().isoformat(),
@@ -1531,7 +1531,7 @@ def _(Path, cohort_stratified, organism_df, pd, site_name, table1_stratified):
     table1_json = upload_dir / 'table1_statistics_by_treatment.json'
     with open(table1_json, 'w') as _f:
         _json.dump(json_output, _f, indent=2)
-    print(f"✓ JSON saved: {table1_json}")
+    print(f"OK JSON saved: {table1_json}")
 
     print(f"\n=== Outputs saved ===")
     print(f"  Row-level data: {phi_dir}/")

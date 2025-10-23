@@ -22,7 +22,7 @@ def _(mo):
 
     All of the following criteria must be met:
 
-    1. **Adult patients aged ≥18 years**
+    1. **Adult patients aged >=18 years**
     2. **Positive organism_category in fluid_category == 'pleural'** (not "no growth")
     3. **Received at least 5 days of IV antibiotics** after order_dttm of positive pleural culture
        - Antibiotics: CMS_sepsis_qualifying_antibiotics from medication_admin_intermittent
@@ -90,7 +90,7 @@ def _(Hospitalization, pd):
     hosp_table = Hospitalization.from_file(config_path='clif_config.json')
     hosp_df = hosp_table.df.copy()
 
-    print(f"✓ Hospitalization data loaded: {len(hosp_df):,} records")
+    print(f"OK Hospitalization data loaded: {len(hosp_df):,} records")
 
     # Convert datetime columns
     hosp_df['admission_dttm'] = pd.to_datetime(hosp_df['admission_dttm'])
@@ -108,7 +108,7 @@ def _(Hospitalization, pd):
         (hosp_df['discharge_dttm'].dt.year <= 2024)
     ].copy()
 
-    print(f"  After age filter (≥18) & date filters(2018-2024 admission, ≤2024 discharge): {len(hosp_filtered):,}")
+    print(f"  After age filter (>=18) & date filters(2018-2024 admission, <=2024 discharge): {len(hosp_filtered):,}")
     return hosp_df, hosp_filtered
 
 
@@ -140,13 +140,13 @@ def _(MicrobiologyCulture, hosp_filtered):
     )
 
     micro_df = micro_table.df.copy()
-    print(f"✓ Microbiology culture data loaded: {len(micro_df):,} records")
+    print(f"OK Microbiology culture data loaded: {len(micro_df):,} records")
 
     # Convert hospitalization_id format (Rush-specific fix for .0 suffix)
     if site_name == 'rush':
         print("\nConverting hospitalization_id format (Rush-specific)...")
         micro_df['hospitalization_id'] = micro_df['hospitalization_id'].astype(float).astype(int).astype(str)
-        print(f"✓ Hospitalization IDs converted to clean string format (removed .0 suffix)")
+        print(f"OK Hospitalization IDs converted to clean string format (removed .0 suffix)")
 
 
     # Filter to only eligible hospitalization IDs
@@ -175,7 +175,7 @@ def _(MicrobiologyCulture, hosp_filtered):
     ].copy()
 
     print(f"  After no_growth filter: {len(micro_positive):,}")
-    print(f"✓ Positive pleural cultures: {len(micro_positive):,}")
+    print(f"OK Positive pleural cultures: {len(micro_positive):,}")
 
     # Exclude hospitalizations with tuberculosis or mycobacterium
     print(f"\nExcluding hospitalizations with tuberculosis or mycobacterium...")
@@ -208,7 +208,7 @@ def _(mo):
 @app.cell
 def _(micro_positive):
     # Group by culture event to prevent duplicate rows from polymicrobial cultures
-    # (same patient, hospitalization, order time, fluid → multiple organisms)
+    # (same patient, hospitalization, order time, fluid -> multiple organisms)
     print("\nGrouping organisms by culture event...")
     print(f"  Before grouping: {len(micro_positive):,} organism records")
 
@@ -232,7 +232,7 @@ def _(micro_positive):
     if _poly_count > 0:
         print(f"  Max organisms in single culture: {micro_grouped['organism_count'].max()}")
 
-    print(f"✓ Grouped to one row per culture event")
+    print(f"OK Grouped to one row per culture event")
     return (micro_grouped,)
 
 
@@ -255,7 +255,7 @@ def _(hosp_filtered, micro_grouped, pd):
         how='inner'
     )
 
-    print(f"✓ Hospitalizations with positive pleural cultures: {len(cohort_with_cultures):,}")
+    print(f"OK Hospitalizations with positive pleural cultures: {len(cohort_with_cultures):,}")
     print(f"  Unique hospitalizations: {cohort_with_cultures['hospitalization_id'].nunique():,}")
     print(f"  Unique patients: {cohort_with_cultures['patient_id'].nunique():,}")
     return (cohort_with_cultures,)
@@ -292,7 +292,7 @@ def _(MedicationAdminIntermittent, cohort_with_cultures):
     )
 
     meds_df = meds_table.df[meds_table.df['med_group'] == 'CMS_sepsis_qualifying_antibiotics'].copy()
-    print(f"✓ CMS sepsis-qualifying antibiotics loaded: {len(meds_df):,} records")
+    print(f"OK CMS sepsis-qualifying antibiotics loaded: {len(meds_df):,} records")
     return cohort_hosp_ids, meds_df
 
 
@@ -315,7 +315,7 @@ def _(cohort_with_cultures, meds_df, pd):
         abx_with_order['admin_dttm'] >= abx_with_order['order_dttm']
     ].copy()
 
-    print(f"✓ Antibiotic administrations after culture order: {len(abx_post_culture):,}")
+    print(f"OK Antibiotic administrations after culture order: {len(abx_post_culture):,}")
     print(f"  Unique culture orders: {abx_post_culture.groupby(['hospitalization_id', 'order_dttm']).ngroups:,}")
     return (abx_post_culture,)
 
@@ -335,7 +335,7 @@ def _(abx_post_culture):
         (abx_post_culture['admin_dttm'] - abx_post_culture['order_dttm']).dt.total_seconds() <= (5 * 24 * 3600)
     ].copy()
 
-    print(f"✓ Antibiotics in 5-day window: {len(abx_5day_window):,}")
+    print(f"OK Antibiotics in 5-day window: {len(abx_5day_window):,}")
     print(f"  Unique culture orders: {abx_5day_window.groupby(['hospitalization_id', 'order_dttm']).ngroups:,}")
     return (abx_5day_window,)
 
@@ -369,7 +369,7 @@ def _(abx_5day_window, pd):
     tqdm.pandas(desc="Processing culture orders")
     abx_pattern = abx_5day_window.groupby(['hospitalization_id', 'order_dttm']).progress_apply(calculate_5day_pattern).reset_index()
 
-    print(f"\n✓ Pattern calculated for {len(abx_pattern):,} culture orders")
+    print(f"\nOK Pattern calculated for {len(abx_pattern):,} culture orders")
     print(f"  All 5 days covered: {(abx_pattern['all_5_days_abx'] == 1).sum():,} ({(abx_pattern['all_5_days_abx'] == 1).sum()/len(abx_pattern)*100:.1f}%)")
     print(f"  Missing 1+ days: {(abx_pattern['all_5_days_abx'] == 0).sum():,} ({(abx_pattern['all_5_days_abx'] == 0).sum()/len(abx_pattern)*100:.1f}%)")
 
@@ -407,7 +407,7 @@ def _(MedicationAdminIntermittent, cohort_hosp_ids):
         (intrapleural_table.df['med_category'].isin(['alteplase', 'dornase_alfa']))
     ].copy()
 
-    print(f"✓ Intrapleural lytics loaded: {len(intrapleural_df):,} records")
+    print(f"OK Intrapleural lytics loaded: {len(intrapleural_df):,} records")
     print(f"  Alteplase: {(intrapleural_df['med_category'] == 'alteplase').sum():,}")
     print(f"  Dornase alfa: {(intrapleural_df['med_category'] == 'dornase_alfa').sum():,}")
     return (intrapleural_df,)
@@ -432,13 +432,13 @@ def _(cohort_with_cultures, intrapleural_df, pd):
     )
 
     # Filter to entire stay window: from first order_dttm to discharge_dttm
-    print("\nFiltering intrapleural lytics to entire stay window (1st order → discharge)...")
+    print("\nFiltering intrapleural lytics to entire stay window (1st order -> discharge)...")
     intrapleural_stay = intrapleural_with_dates[
         (intrapleural_with_dates['admin_dttm'] >= intrapleural_with_dates['order_dttm']) &
         (intrapleural_with_dates['admin_dttm'] <= intrapleural_with_dates['discharge_dttm'])
     ].copy()
 
-    print(f"✓ Intrapleural lytics in entire stay window: {len(intrapleural_stay):,}")
+    print(f"OK Intrapleural lytics in entire stay window: {len(intrapleural_stay):,}")
     print(f"  Unique hospitalizations with lytics: {intrapleural_stay['hospitalization_id'].nunique():,}")
     print(f"  Alteplase: {(intrapleural_stay['med_category'] == 'alteplase').sum():,}")
     print(f"  Dornase alfa: {(intrapleural_stay['med_category'] == 'dornase_alfa').sum():,}")
@@ -467,7 +467,7 @@ def _(intrapleural_stay, pd):
         lambda g: pd.Series(calc_lytic_stats(g))
     ).reset_index()
 
-    print(f"✓ Hospitalizations with intrapleural lytics: {len(lytics_received):,}")
+    print(f"OK Hospitalizations with intrapleural lytics: {len(lytics_received):,}")
     print(f"  With alteplase: {(lytics_received['n_doses_alteplase'] > 0).sum():,}")
     print(f"  With dornase alfa: {(lytics_received['n_doses_dornase_alfa'] > 0).sum():,}")
     print(f"  With both: {((lytics_received['n_doses_alteplase'] > 0) & (lytics_received['n_doses_dornase_alfa'] > 0)).sum():,}")
@@ -500,7 +500,7 @@ def _(PatientProcedures, cohort_hosp_ids):
         (proc_table.df['procedure_code'].isin(vats_cpt_codes))
     ].copy()
 
-    print(f"✓ VATS/Decortication procedures loaded: {len(proc_df):,} records")
+    print(f"OK VATS/Decortication procedures loaded: {len(proc_df):,} records")
     if len(proc_df) > 0:
         print(f"  CPT code distribution:")
         for _code in vats_cpt_codes:
@@ -519,7 +519,7 @@ def _(proc_df):
     procedures_received.columns = ['hospitalization_id', 'procedure_count']
     procedures_received['received_vats_decortication'] = 1
 
-    print(f"✓ Hospitalizations with VATS/decortication: {len(procedures_received):,}")
+    print(f"OK Hospitalizations with VATS/decortication: {len(procedures_received):,}")
     return (procedures_received,)
 
 
@@ -580,7 +580,7 @@ def _(
     # Fill NaN (no procedures) with 0
     cohort_with_abx['received_vats_decortication'] = cohort_with_abx['received_vats_decortication'].fillna(0).astype(int)
 
-    print(f"✓ Cohort with antibiotic patterns, lytics, and procedures: {len(cohort_with_abx):,}")
+    print(f"OK Cohort with antibiotic patterns, lytics, and procedures: {len(cohort_with_abx):,}")
     print(f"  Before 5-day filter: {len(cohort_with_abx):,} culture orders")
     print(f"  Missing 1+ antibiotic days: {(cohort_with_abx['all_5_days_abx'] == 0).sum():,}")
     print(f"  All 5 antibiotic days covered: {(cohort_with_abx['all_5_days_abx'] == 1).sum():,}")
@@ -592,7 +592,7 @@ def _(
         cohort_with_abx['all_5_days_abx'] == 1
     ].copy()
 
-    print(f"\n✓ Final cohort after 5-day antibiotic requirement: {len(cohort_final):,}")
+    print(f"\nOK Final cohort after 5-day antibiotic requirement: {len(cohort_final):,}")
     print(f"  Unique hospitalizations: {cohort_final['hospitalization_id'].nunique():,}")
     print(f"  Unique patients: {cohort_final['patient_id'].nunique():,}")
     print(f"  With intrapleural lytics: {(cohort_final['received_intrapleural_lytic'] == 1).sum():,} ({(cohort_final['received_intrapleural_lytic'] == 1).sum()/len(cohort_final)*100:.1f}%)")
@@ -785,7 +785,7 @@ def _(
             },
             {
                 "step": 2,
-                "description": "Age ≥18 & Admission 2018-2024",
+                "description": "Age >=18 & Admission 2018-2024",
                 "total_rows": len(hosp_filtered),
                 "unique_hospitalizations": hosp_filtered['hospitalization_id'].nunique(),
                 "rows_dropped": len(hosp_df) - len(hosp_filtered)
