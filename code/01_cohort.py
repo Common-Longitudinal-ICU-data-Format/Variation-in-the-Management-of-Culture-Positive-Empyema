@@ -303,7 +303,7 @@ def _(MedicationAdminIntermittent, cohort_with_cultures):
         columns=['hospitalization_id', 'admin_dttm', 'med_category','med_group','med_route_category']
     )
 
-    meds_df = meds_table.df[meds_table.df['med_group'] == 'CMS_sepsis_qualifying_antibiotics'].copy()
+    meds_df = meds_table.df[meds_table.df['med_group'].str.lower() == 'cms_sepsis_qualifying_antibiotics'].copy()
     print(f"OK CMS sepsis-qualifying antibiotics loaded: {len(meds_df):,} records")
 
     # Check for null datetime values in admin_dttm
