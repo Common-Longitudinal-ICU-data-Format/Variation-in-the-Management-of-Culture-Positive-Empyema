@@ -64,22 +64,6 @@ Create/update `clif_config.json` (rename _template.json) with your site-specific
 
 This step identifies eligible hospitalizations, applies inclusion/exclusion criteria, and stratifies patients into treatment cohorts.
 
-**Mac/Linux (with logging)**:
-
-``` bash
-mkdir -p logs
-uv run marimo run code/01_cohort.py 2>&1 | tee logs/01_cohort_output.log
-```
-
-**Windows PowerShell (with logging)**:
-
-``` powershell
-New-Item -ItemType Directory -Force -Path logs
-uv run marimo run code/01_cohort.py 2>&1 | Tee-Object -FilePath logs/01_cohort_output.log
-```
-
-**Troubleshooting**: If you encounter errors, run in edit mode to see cell-level execution:
-
 ``` bash
 uv run marimo edit code/01_cohort.py
 ```
@@ -87,20 +71,6 @@ uv run marimo edit code/01_cohort.py
 ### Step 2: Add Clinical Features and Generate Table 1
 
 This step adds clinical features to the cohort and generates Table 1 summary statistics stratified by treatment group.
-
-**Mac/Linux (with logging)**:
-
-``` bash
-uv run marimo run code/02_table1.py 2>&1 | tee logs/02_table1_output.log
-```
-
-**Windows PowerShell (with logging)**:
-
-``` powershell
-uv run marimo run code/02_table1.py 2>&1 | Tee-Object -FilePath logs/02_table1_output.log
-```
-
-**Troubleshooting**:
 
 ``` bash
 uv run marimo edit code/02_table1.py
