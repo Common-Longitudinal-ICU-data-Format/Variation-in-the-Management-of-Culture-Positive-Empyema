@@ -167,6 +167,13 @@ def _(MicrobiologyCulture, hosp_filtered):
     micro_df = micro_df[micro_df['order_dttm'].notna()].copy()
     print(f"  Microbiology: {null_order_dttm:,} records with null order_dttm removed")
 
+    # Check organism_category data quality
+    print(f"\nOrganism category data quality check...")
+    null_orgs = micro_df['organism_category'].isna().sum()
+    empty_orgs = (micro_df['organism_category'] == '').sum()
+    print(f"  Null organism_category values: {null_orgs:,}")
+    print(f"  Empty string organism_category values: {empty_orgs:,}")
+
     # Filter to pleural fluid only
     print("\nApplying pleural fluid filter...")
     print(f"  Before pleural filter: {len(micro_df):,}")
@@ -178,15 +185,32 @@ def _(MicrobiologyCulture, hosp_filtered):
 
     print(f"  After pleural filter: {len(micro_pleural):,}")
 
-    # Exclude 'no growth'
-    print(f"\nExcluding 'no growth' organisms...")
-    print(f"  Before no_growth filter: {len(micro_pleural):,}")
+    # Exclude 'no growth', nulls, and empty strings with detailed reporting
+    print(f"\nExcluding 'no growth', null, and empty organisms...")
+    print(f"  Before filter: {len(micro_pleural):,}")
 
+    # Count what will be filtered
+    null_count = micro_pleural['organism_category'].isna().sum()
+    empty_count = (micro_pleural['organism_category'] == '').sum()
+
+    # Create normalized column for checking "no growth" variants
+    organism_normalized = micro_pleural['organism_category'].fillna('').str.lower().str.strip()
+    no_growth_variants = ['no_growth', 'no growth', 'nogrowth']
+    no_growth_count = organism_normalized.isin(no_growth_variants).sum()
+
+    print(f"  Filtering breakdown:")
+    print(f"    Null organism_category: {null_count:,}")
+    print(f"    Empty organism_category: {empty_count:,}")
+    print(f"    'no growth' variants: {no_growth_count:,}")
+
+    # Apply robust filter: exclude nulls, empty strings, and "no growth" variants
     micro_positive = micro_pleural[
-        micro_pleural['organism_category'].str.lower() != 'no_growth'
+        (micro_pleural['organism_category'].notna()) &
+        (micro_pleural['organism_category'] != '') &
+        (~organism_normalized.isin(no_growth_variants))
     ].copy()
 
-    print(f"  After no_growth filter: {len(micro_positive):,}")
+    print(f"  After filter: {len(micro_positive):,}")
     print(f"OK Positive pleural cultures: {len(micro_positive):,}")
 
     # Exclude hospitalizations with tuberculosis or mycobacterium
@@ -311,7 +335,6 @@ def _(MedicationAdminIntermittent, cohort_with_cultures):
     null_admin_dttm = meds_df['admin_dttm'].isna().sum()
     meds_df = meds_df[meds_df['admin_dttm'].notna()].copy()
     print(f"  Medications: {null_admin_dttm:,} records with null admin_dttm removed")
-
     return cohort_hosp_ids, meds_df
 
 
@@ -456,7 +479,6 @@ def _(MedicationAdminIntermittent, cohort_hosp_ids):
     null_intrapleural_admin = intrapleural_df['admin_dttm'].isna().sum()
     intrapleural_df = intrapleural_df[intrapleural_df['admin_dttm'].notna()].copy()
     print(f"  Intrapleural: {null_intrapleural_admin:,} records with null admin_dttm removed")
-
     return (intrapleural_df,)
 
 
@@ -537,7 +559,7 @@ def _(PatientProcedures, cohort_hosp_ids):
         filters={
             'hospitalization_id': cohort_hosp_ids
         },
-        columns=['hospitalization_id', 'procedure_code', 'procedure_code_format', 'procedure_billed_dttm']
+        columns=['hospitalization_id', 'procedure_code', 'procedure_code_format']
     )
 
     # Filter to VATS/decortication CPT codes
@@ -555,12 +577,11 @@ def _(PatientProcedures, cohort_hosp_ids):
             if _code_count > 0:
                 print(f"    {_code}: {_code_count:,}")
 
-    # Check for null datetime values in procedure_billed_dttm
-    print(f"\nNull datetime check - Procedures...")
-    null_procedure_dttm = proc_df['procedure_billed_dttm'].isna().sum()
-    proc_df = proc_df[proc_df['procedure_billed_dttm'].notna()].copy()
-    print(f"  Procedures: {null_procedure_dttm:,} records with null procedure_billed_dttm removed")
-
+    # # Check for null datetime values in procedure_billed_dttm
+    # print(f"\nNull datetime check - Procedures...")
+    # null_procedure_dttm = proc_df['procedure_billed_dttm'].isna().sum()
+    # proc_df = proc_df[proc_df['procedure_billed_dttm'].notna()].copy()
+    # print(f"  Procedures: {null_procedure_dttm:,} records with null procedure_billed_dttm removed")
     return (proc_df,)
 
 
