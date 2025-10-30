@@ -474,6 +474,19 @@ def _(MedicationAdminIntermittent, cohort_hosp_ids):
     print(f"  Alteplase: {(intrapleural_df['med_category'] == 'alteplase').sum():,}")
     print(f"  Dornase alfa: {(intrapleural_df['med_category'] == 'dornase_alfa').sum():,}")
 
+    # Convert med_dose to numeric (handles string values at some sites)
+    print(f"\nConverting med_dose to numeric...")
+    null_before = intrapleural_df['med_dose'].isna().sum()
+    intrapleural_df['med_dose'] = pd.to_numeric(intrapleural_df['med_dose'], errors='coerce')
+    null_after = intrapleural_df['med_dose'].isna().sum()
+    converted_to_null = null_after - null_before
+
+    if converted_to_null > 0:
+        print(f"  WARNING: {converted_to_null:,} records had non-numeric med_dose values (converted to NaN)")
+        intrapleural_df = intrapleural_df[intrapleural_df['med_dose'].notna()].copy()
+        print(f"  Removed {converted_to_null:,} records with invalid doses")
+    print(f"  OK med_dose converted to numeric: {len(intrapleural_df):,} records remain")
+
     # Check for null datetime values in admin_dttm
     print(f"\nNull datetime check - Intrapleural medications...")
     null_intrapleural_admin = intrapleural_df['admin_dttm'].isna().sum()
