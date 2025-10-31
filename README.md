@@ -89,7 +89,7 @@ uv run marimo edit code/02_table1.py
 | **microbiology_culture** | hospitalization_id, order_dttm, collection_dttm, organism_category, fluid_category | fluid_category = 'pleural', organism_category != 'no growth' |
 | **patient** | patient_id, sex_category, ethnicity_category, race_category, death_dttm | - |
 | **respiratory_support** | hospitalization_id, recorded_dttm, device_category, fio2_set | NIPPV, High Flow NC, etc. |
-| **patient_procedures** | hospitalization_id, procedure_dttm, icd10_code, cpt_code | CPT Codes: 32651 (Thoracoscopy with partial pulmonary decortication), 32652 (Thoracoscopy with total pulmonary decortication), 32225 (Decortication partial), 32220 (Decortication total), 32320 (Decortication and parietal pleurectomy) |
+| **patient_procedures** | hospitalization_id, procedure_dttm, icd10_code, cpt_code | CPT Codes: 32035 (Thoracostomy with rib resection for empyema), 32036 (Thoracostomy with open flap drainage for empyema), 32100 (Thoracotomy with exploration), 32124 (Thoracotomy with open intrapleural pneumolysis), 32220 (Decortication pulmonary-total), 32225 (Decortication pulmonary partial), 32310 (Pleurectomy parietal), 32320 (Decortication and parietal pleurectomy), 32601 (Thoracoscopy diagnostic lungs and pleural space without biopsy), 32651 (Thoracoscopy surgical with partial pulmonary decortication), 32652 (Thoracoscopy surgical with total pulmonary decortication), 32653 (Thoracoscopy surgical with removal of intrapleural foreign body or fibrin deposit), 32656 (Thoracoscopy surgical with parietal pleurectomy), 32663 (Thoracoscopy surgical with lobectomy total or segmental), 32669 (Thoracoscopy with removal of single lung segment), 32670 (Thoracoscopy with removal of two lobes), 32671 (Thoracoscopy with removal of lung pneumonectomy), 32810 (Closure of chest wall following open flap drainage for empyema) |
 
 ## Study Population
 
@@ -377,11 +377,24 @@ Once both scripts (`01_cohort.py` and `02_table1.py`) have completed successfull
 ### Procedure Code Identification
 
 The following CPT codes are used to identify surgical intervention (VATS cohort):
+- **CPT 32035**: Thoracostomy; with rib resection for empyema
+- **CPT 32036**: Thoracostomy; with open flap drainage for empyema
+- **CPT 32100**: Thoracotomy, with exploration
+- **CPT 32124**: Thoracotomy with open intrapleural pneumolysis
+- **CPT 32220**: Decortication, pulmonary-total
+- **CPT 32225**: Decortication, pulmonary, partial
+- **CPT 32310**: Pleurectomy, parietal
+- **CPT 32320**: Decortication and parietal pleurectomy
+- **CPT 32601**: Thoracoscopy, diagnostic lungs and pleural space, without biopsy
 - **CPT 32651**: Thoracoscopy, surgical; with partial pulmonary decortication
 - **CPT 32652**: Thoracoscopy, surgical; with total pulmonary decortication
-- **CPT 32225**: Decortication, pulmonary; partial
-- **CPT 32220**: Decortication, pulmonary; total
-- **CPT 32320**: Decortication and parietal pleurectomy
+- **CPT 32653**: Thoracoscopy, surgical; with removal of intrapleural foreign body or fibrin deposit
+- **CPT 32656**: Thoracoscopy, surgical; with parietal pleurectomy
+- **CPT 32663**: Thoracoscopy, surgical; with lobectomy, total or segmental
+- **CPT 32669**: Thoracoscopy with removal of a single lung segment (segmentectomy)
+- **CPT 32670**: Thoracoscopy with removal of two lobes (bilobectomy)
+- **CPT 32671**: Thoracoscopy with removal of lung, pneumonectomy
+- **CPT 32810**: Closure of chest wall following open flap drainage for empyema (Claggett type procedure)
 
 These codes should be searched in both `hospital_diagnosis.icd10_code` (POA = 'no') and `patient_procedures` tables.
 

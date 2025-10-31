@@ -45,7 +45,7 @@ def _(mo):
        - Tracked from 1st culture order_dttm to discharge_dttm (entire stay)
        - Includes dose counts and median doses for alteplase and dornase_alfa
     2. **VATS/Decortication procedures** (hospitalization-level, any time during stay)
-       - CPT codes: 32651, 32652, 32225, 32220, 32320
+       - CPT codes: 32035, 32036, 32100, 32124, 32220, 32225, 32310, 32320, 32601, 32651, 32652, 32653, 32656, 32663, 32669, 32670, 32671, 32810
     """
     )
     return
@@ -576,9 +576,9 @@ def _(PatientProcedures, cohort_hosp_ids):
     )
 
     # Filter to VATS/decortication CPT codes
-    vats_cpt_codes = ['32651', '32652', '32225', '32220', '32320']
+    vats_cpt_codes = ['32035', '32036', '32100', '32124', '32220', '32225', '32310', '32320', '32601', '32651', '32652', '32653', '32656', '32663', '32669', '32670', '32671', '32810']
     proc_df = proc_table.df[
-        (proc_table.df['procedure_code_format'] == 'CPT') &
+        (proc_table.df['procedure_code_format'].str.lower().str.contains('cpt', na=False)) &
         (proc_table.df['procedure_code'].isin(vats_cpt_codes))
     ].copy()
 
