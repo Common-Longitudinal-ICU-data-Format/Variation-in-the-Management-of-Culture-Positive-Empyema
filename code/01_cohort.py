@@ -545,9 +545,10 @@ def _(intrapleural_stay, pd):
             'median_dose_dornase_alfa': float(dornase_doses.median()) if len(dornase_doses) > 0 else 0.0
         }
 
-    lytics_received = intrapleural_stay.groupby('hospitalization_id').apply(
-        lambda g: pd.Series(calc_lytic_stats(g))
-    ).reset_index()
+    lytics_received = intrapleural_stay.groupby('hospitalization_id', as_index=False).apply(
+        lambda g: pd.Series(calc_lytic_stats(g)),
+        include_groups=False
+    )
 
     print(f"OK Hospitalizations with intrapleural lytics: {len(lytics_received):,}")
     print(f"  With alteplase: {(lytics_received['n_doses_alteplase'] > 0).sum():,}")
